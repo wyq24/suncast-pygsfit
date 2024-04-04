@@ -801,7 +801,7 @@ class App(QMainWindow):
             self.eoimg_seq_slider_label_widget.setVisible(self.data_in_seq)
             self.cur_frame_idx = 0
             self.eoimg_files_seq_select_return()
-            print('{} files are selected and loaded as a img sequence.'.format(len(tmp_eoimg_fname_seq)))
+            print('{} file(s) are selected and loaded as a img sequence.'.format(len(tmp_eoimg_fname_seq)))
         else:
             print('No file is selected')
         
@@ -878,6 +878,11 @@ class App(QMainWindow):
             new_4d_data = np.repeat(np.expand_dims(self.data, axis=1), repeats=len(self.eoimg_time_seq), axis=1)
             for cf_idx, c_eo_file in enumerate(self.eoimg_time_seq):
                 cmeta, cdata = ndfits.read(c_eo_file)
+                if cmeta['naxis'] == 3:
+                    print('Input fits file does not have stokes axis. Assume Stokes I.')
+                    cdata = np.expand_dims(cdata, axis=0)
+                elif cmeta['naxis'] != 4:
+                    raise ValueError('Input fits file must have 3 or 4 dimensions. Abort..')
                 self.eoimg_date_seq.append(cmeta['refmap'].date)
                 self.eoimg_exptime_seq.append(TimeDelta(cmeta['refmap'].meta['exptime'], format='sec'))
                 new_4d_data[self.pol_select_idx, cf_idx,:,:,:] = cdata[self.pol_select_idx, :,:,:]
