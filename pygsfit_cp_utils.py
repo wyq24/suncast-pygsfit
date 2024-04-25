@@ -1,6 +1,8 @@
 from astropy import constants as const, units as u
 import numpy as np
 from astropy.coordinates import SkyCoord
+import h5py
+import os
 
 def extent_convertor(cheader):
     # Replace direct assignments with lookups
@@ -73,8 +75,36 @@ def world2pix(xy_coord, refmap):
     coord = SkyCoord(solar_x, solar_y, frame=refmap.coordinate_frame)
     return refmap.world_to_pixel(coord)
 
+def merge_hdf5(files, output_file):
+    with h5py.File(output_file, 'w') as h5f:
+        for i, file in enumerate(files):
+            with h5py.File(file, 'r') as f:
+                for key in f.keys():
+                    data = f[key][:]
+                    if key in h5f:
+                        h5f[key].resize((h5f[key].shape[0] + data.shape[0]), axis=0)
+                        h5f[key][-data.shape[0]:] = data
+                    else:
+                        maxshape = (None,) + data.shape[1:]
+                        h5f.create_dataset(key, data=data, maxshape=maxshape, chunks=True)
 
+def copy_items(source_group, target_group):
+    for item_name, item in source_group.items():
+        if isinstance(item, h5py.Dataset):
+            source_group.copy(item, target_group, name=item_name)
+        elif isinstance(item, h5py.Group):
+            new_group = target_group.create_group(item_name)
+            copy_items(item, new_group)
 
-
+def combine_hdf5_files(file_list, output_file):
+    with h5py.File(output_file, 'w') as new_hdf:
+        for file_path in file_list:
+            group_name = os.path.splitext(os.path.basename(file_path))[0]
+            group = new_hdf.create_group(group_name)
+            with h5py.File(file_path, 'r') as source_hdf:
+                copy_items(source_hdf, group)
+    for file_path in file_list:
+        os.remove(file_path)
+        print(f"Deleted {file_path}")
 
 

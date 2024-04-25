@@ -12,6 +12,7 @@ import numpy as np
 
 import pygsfit_cp_utils as ut
 import ndfits
+import h5py
 
 
 class pygsfit_cp:
@@ -131,13 +132,16 @@ class pygsfit_cp:
                         extra_info = {'filename': self.filename, 'start_freq_idx': start_freq_idx,
                                       'end_freq_idx': end_freq_idx,
                                       'parguess': final_parguess, 'ninput': self.ninput, 'rinput': self.rinput,
-                                      'coord': self.coordinates[cidx],
+                                      'coord': list(self.coordinates[cidx]),
                                       'spec_in': spec_in_list[cidx], 'freq': self.ffghz, 'task_idx': cidx,
                                       'out_dir': self.out_dir}
                         tasks.append(dask.delayed(pyWrapper_Fit_Spectrum_Kl)(self.libpath, self.ninput, self.rinput,
                                                                              final_parguess, self.ffghz,
                                                                              spec_in_list[cidx], info=extra_info))
-                    dask.compute(*tasks)
+                    out_filenames = dask.compute(*tasks)
+                    final_out_fname = os.path.join(self.out_dir,os.path.basename(self.filename).replace('fits', 'h5'))
+                    merge_task = dask.delayed(ut.combine_hdf5_files)(out_filenames, final_out_fname)
+                    merge_task.compute()
                     return 1
                 else:
                     print('Mode can only be single or batch')
@@ -247,7 +251,7 @@ def pyWrapper_Fit_Spectrum_Kl(cur_libpath, ninput, rinput, parguess, freq, spec_
     :param parguess: Input parameters ([guess, min, max]*15), see Parms_input.txt
     :param freq: freqs in GHz, example:    freq = np.array([3.42, 3.92, 4.42,.......], dtype='float64', order='F')
     :param spec_in: spectrum/uncertainty to be fitted, (1, n_freq, 4), spectrum:[0,:,0], uncertainty:[0,:,2]
-    :param info: extra info to be save, if provided, fitting results will be saved in to a pickle.
+    :param info: extra info to be save, if provided, fitting results will be saved in to a hdf5.
     :return:fitted spectrum, parameters and corresponding uncerntainties.
     """
     # orgnize the input args
@@ -270,11 +274,28 @@ def pyWrapper_Fit_Spectrum_Kl(cur_libpath, ninput, rinput, parguess, freq, spec_
     res = mwfunc(ctypes.c_longlong(8), argv)
 
     if info is not None:
-        out_fname = os.path.join(info['out_dir'], 'task_{0:0=4d}.p'.format(info['task_idx']))
-        with open(out_fname, 'wb') as f:
-            pickle.dump((spec_out, aparms, eparms, info), f)
+        out_fname = os.path.join(info['out_dir'], 'task_{0:0=4d}.hdf5'.format(info['task_idx']))
+        #info_serialized = json.dumps(info)
+        with h5py.File(out_fname, 'w') as f:
+            # Create datasets within the HDF5 file
+            f.create_dataset('spec_out', data=spec_out)
+            f.create_dataset('aparms', data=aparms)
+            f.create_dataset('eparms', data=eparms)
+            info_group = f.create_group('info')
+            for key, value in info.items():
+                #if isinstance(value, (int, float, str, list, np.ndarray)):
+                if isinstance(value, list):
+                    value = np.array(value)
+                info_group.create_dataset(key, data=value)
+                #else:
+                #    raise TypeError(f"Unsupported data type for key {key}: {type(value)}")
+            #f.create_dataset('info', data=info)
+        # with h5py.File('yourfile.h5', 'r') as f:
+        #     info = json.loads(f['info'][()].decode())
+        #with open(out_fname, 'wb') as f:
+        #    pickle.dump((spec_out, aparms, eparms, info), f)
         # pickle.dump((spec_out, aparms, eparms, info), open(out_fname, 'wb'), protocol=pickle.HIGHEST_PROTOCOL)
-        return 1
+        return out_fname
     else:
         return (spec_out, aparms, eparms, info)
 
