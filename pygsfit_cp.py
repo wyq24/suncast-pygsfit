@@ -10,11 +10,11 @@ import matplotlib.patches as patches
 import matplotlib.pyplot as plt
 import numpy as np
 
-import gspyfit_utils as ut
+import pygsfit_cp_utils as ut
 import ndfits
 
 
-class gspyfit:
+class pygsfit_cp:
     def __init__(self, filename, out_dir=None):
         self.filename = filename
         self.out_dir = out_dir if out_dir else os.getcwd()
