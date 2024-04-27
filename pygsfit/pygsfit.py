@@ -28,6 +28,7 @@ import multiprocessing
 import tempfile
 import glob
 from scipy.interpolate import interp1d
+import pickle
 # import re
 # import time
 # from astropy.coordinates import SkyCoord
@@ -93,6 +94,7 @@ class App(QMainWindow):
         self._main = QWidget()
         self.setCentralWidget(self._main)
         self.fit_method = 'nelder'
+        self.emcee_save_file = ''
         self.fit_params = lmfit.Parameters()
         self.fit_params.add_many(('Bx100G', 2., True, 0.1, 100., None, None),
                                  ('log_nnth', 5., True, 3., 11, None, None),
@@ -2450,6 +2452,7 @@ class App(QMainWindow):
                                                          pen=dict(color=pg.mkColor(local_roi_idx), width=4),
                                                          symbol=None, symbolBrush=None)
                     self.speccanvas.addItem(self.spec_fitplot)
+                emcee_params = None
             else:
                 fit_kws_nelder = {'maxiter': 2000, 'tol': 0.01}
                 mini = lmfit.Minimizer(self.fit_function, self.fit_params,
@@ -2476,20 +2479,24 @@ class App(QMainWindow):
                                                'spec_in_tb': self.spec_in_tb},
                                        max_nfev=max_nfev, nan_policy='omit')
                 emcee_params = mini.minimize(method='emcee', **emcee_kws)
+                self.fit_params_res = emcee_params.params
 
                 print(lmfit.report_fit(emcee_params.params))
+                chain = emcee_params.flatchain
+                shape = chain.shape[0]
+                for n, key in enumerate(self.fit_params_res):
+                #for n, key in enumerate(emcee_params.params):
+                    if key=='lnf':
+                        continue
+                    try:
+                        self.param_fit_value_widgets[n].setValue(np.median(chain[key][burn:]))
+                        mi.params[key].set(value=np.median(chain[key][burn:]))
+                    except KeyError:
+                        pass
+                freqghz_toplot = np.logspace(0, np.log10(20.), 100)
+                med_params = copy.deepcopy(mi.params)
+                med_spec_fit_res = self.fit_function(mi.params, freqghz_toplot, spec_in_tb=self.spec_in_tb)
                 if self.update_gui:
-                    chain = emcee_params.flatchain
-                    shape = chain.shape[0]
-                    for n, key in enumerate(self.fit_params_res):
-                        if key=='lnf':
-                            continue
-                        try:
-                            self.param_fit_value_widgets[n].setValue(np.median(chain[key][burn:]))
-                        except KeyError:
-                            pass
-                    freqghz_toplot = np.logspace(0, np.log10(20.), 100)
-
                     for i in range(burn, shape, thin):
                         for n, key in enumerate(self.fit_params_res):
                             try:
@@ -2498,20 +2505,29 @@ class App(QMainWindow):
                                 pass
                         spec_fit_res = self.fit_function(mi.params, freqghz_toplot, spec_in_tb=self.spec_in_tb)
                         self.spec_fitplot = self.speccanvas.plot(x=np.log10(freqghz_toplot), y=np.log10(spec_fit_res),
-                                                                 pen=dict(color=pg.mkColor(local_roi_idx), width=4),
+                                                                 pen=dict(color=pg.mkColor(local_roi_idx), width=0.5),
                                                                  symbol=None, symbolBrush=None)
-                        self.spec_fitplot.setAlpha(0.01, False)
+                        self.spec_fitplot.setAlpha(0.05, False)
+                        self.spec_fitplot_med = self.speccanvas.plot(x=np.log10(freqghz_toplot), y=np.log10(med_spec_fit_res),
+                                                                 pen=dict(color='k', width=2),
+                                                                 symbol=None, symbolBrush=None)
+                        self.spec_fitplot_med.setAlpha(1, False)
                         self.speccanvas.addItem(self.spec_fitplot)
-                else:
-                    freqghz_toplot = np.logspace(0, np.log10(20.), 100)
-                mi.params = emcee_params.params
+                        self.speccanvas.addItem(self.spec_fitplot_med)
+
+                #spec_fit_res = self.fit_function(mi.params, freqghz_toplot, spec_in_tb=self.spec_in_tb)
+                mi.params = med_params
+                spec_fit_res = med_spec_fit_res
                 exported_fittig_info.append((emcee_params, mi))
 
-            if self.savedata == True:
+        if self.savedata == True:
+            if self.update_gui:
+                self.save_res_to_fits_file(local_roi_idx, mi, freqghz_toplot, spec_fit_res, emcee_res=emcee_params)
+            else:
                 file_write_lock = threading.Lock()
                 with file_write_lock:
                     #self.save_res_to_hdf5_file(local_roi_idx, mi, freqghz_toplot, spec_fit_res)
-                    self.save_res_to_fits_file(local_roi_idx, mi, freqghz_toplot, spec_fit_res)
+                    self.save_res_to_fits_file(local_roi_idx, mi, freqghz_toplot, spec_fit_res, emcee_res=emcee_params)
 
             if not self.update_gui:
                 exported_fittig_info.append(freqghz_toplot)
@@ -2585,19 +2601,21 @@ class App(QMainWindow):
                 hf.create_dataset('model_spectrum', data=spec_fit_res)
                 # hf.close()
 
-    def save_res_to_fits_file(self, local_roi_idx, minimiz_res, freqghz_toplot, spec_fit_res):
+    def save_res_to_fits_file(self, local_roi_idx, minimiz_res, freqghz_toplot, spec_fit_res, emcee_res=None):
         # Create a FITS header with metadata
         roi = self.rois[self.roi_group_idx][local_roi_idx]
         header = fits.Header()
         header['roi_str'] = str(self.serialize_roi(roi))
         header['roi_ang'] = (self.rois[self.roi_group_idx][local_roi_idx]).saveState()['angle']
-        header['img_file'] = self.eoimg_fname
-        header['spec_file'] = self.eodspec_fname
+        #header['img_file'] = self.eoimg_fname
+        #header['spec_file'] = self.eodspec_fname
         header['low_freq'] = self.fit_freq_bound[0]
         header['high_freq'] = self.fit_freq_bound[1]
         header['high_freq'] = self.fit_freq_bound[1]
         header['fit_method'] = self.fit_method
         header['fit_function'] = self.ele_dist
+        primary_hdu = fits.PrimaryHDU(header=header)
+
 
         def create_parameters_table(fit_params, mi_params):
             param_data = []
@@ -2626,8 +2644,6 @@ class App(QMainWindow):
         # for i, name in enumerate(param_names):
         #     header['PARAM{}'.format(i)] = str(create_attr_array(self.fit_params, minimiz_res.params, name))
 
-        primary_hdu = fits.PrimaryHDU(header=header)
-
         if self.spec_in_tb:
             spec = roi.tb_max
             spec_err = np.sqrt(self.bkg_roi.tb_rms ** 2. + (self.spec_frac_err * spec) ** 2.)
@@ -2644,9 +2660,6 @@ class App(QMainWindow):
         model_spectrum_hdu = fits.ImageHDU(spec_fit_res, name='MODEL_SPECTRUM')
         params_table_hdu = create_parameters_table(self.fit_params, minimiz_res.params)
 
-        # Create an HDUList and save to a FITS file
-        hdul = fits.HDUList(
-            [primary_hdu, observed_spectrum_hdu, error_hdu, obs_freq_hdu, model_freq_hdu, model_spectrum_hdu, params_table_hdu])
 
         if self.update_gui:
             filename, ok2 = QFileDialog.getSaveFileName(None, "Save the selected group ()", os.getcwd(),
@@ -2657,6 +2670,26 @@ class App(QMainWindow):
 
         if ok2 or not self.update_gui:
             print('Fitting results will be saved to: ', filename)
+            if emcee_res is not None:
+                self.emcee_save_file = filename.replace('.fits','emcee_res.p')
+                pickle.dump(emcee_res, open(self.emcee_save_file,'wb'),protocol=pickle.HIGHEST_PROTOCOL)
+            # path of the files are to long to be saved in the header, save them into a binary table
+            file_dict = {'img_file': self.eoimg_fname, 'spec_file': self.eodspec_fname, 'emcee_save_file':self.emcee_save_file}
+            fd_keys =   np.array(list(file_dict.keys()))
+            fd_values = np.array(list(file_dict.values()))
+            col1 = fits.Column(name='Key', format='120A', array=fd_keys)  # '20A' denotes strings of length 20
+            col2 = fits.Column(name='Value', format='120A', array=fd_values)
+            file_path_hdu = fits.BinTableHDU.from_columns([col1,col2])
+
+            #retrive the dictionary from the column:
+            # with fits.open('data.fits') as hdul:
+            #     data = hdul[1].data  # Data is usually in the first extension
+            # result_dict = {row['Key'].strip(): row['Value'].strip() for row in data}
+
+            # Create an HDUList and save to a FITS file
+            hdul = fits.HDUList(
+                [primary_hdu, file_path_hdu, observed_spectrum_hdu, error_hdu, obs_freq_hdu, model_freq_hdu, model_spectrum_hdu,
+                 params_table_hdu])
             hdul.writeto(filename, overwrite=True)
         # #just for testing
         # def read_fits_file(filename):
@@ -2846,13 +2879,13 @@ class App(QMainWindow):
         lines.append("serialized_rois = " + str(serialized_rois) + "\n")
         lines.append("f_obj.roi_group_idx = 0\n")
         lines.append("f_obj.has_rois = True\n")
-        lines.append("f_obj.savedata = True\n")
         lines.append("f_obj.update_gui = False\n")
         lines.append("f_obj.current_roi_idx = 0\n")
         lines.append("f_obj.rois = [[]]\n")
         lines.append("f_obj.add_pre_defined_roi(serialized_rois)\n")
         lines.append("f_obj.pathBatchFitRes()\n")
         lines.append("f_obj.rois_to_fits()\n")
+        lines.append("f_obj.savedata = True\n")
         lines.append("f_obj.completed_tasks = 0\n")
         lines.append("f_obj.parallel_fitting()\n")
         with open(filename, 'w') as file:
@@ -2960,6 +2993,7 @@ class App(QMainWindow):
             hf_combined.create_dataset('file_indices', data=index_dataset)
 
     def combine_fits_files(self, final_path, original_files):
+        original_files.sort()
         with fits.HDUList() as hdul_combined:
             for file in original_files:
                 with fits.open(file) as hdul:
