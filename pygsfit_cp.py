@@ -16,9 +16,12 @@ import h5py
 
 
 class pygsfit_cp:
-    def __init__(self, filename, out_dir=None):
-        self.filename = filename
-        self.out_dir = out_dir if out_dir else os.getcwd()
+    def __init__(self, filename=None, out_dir=None):
+        self.filename = filename if filename is not None else os.path.join(os.path.dirname(__file__), 'demo/eovsa_allbd_demo.fits')
+        #self.filename = filename
+        self.out_dir = out_dir if out_dir else os.path.join(os.path.expanduser('~'), 'pygsfit_cp_output')
+        if not os.path.exists(self.out_dir):
+            os.makedirs(self.out_dir)
         self.libpath = self.get_lib()
         self.meta, self.tb_data = ndfits.read(self.filename)
         self.start_freq = self.meta['ref_cfreqs'][0]  # Hz
@@ -46,28 +49,25 @@ class pygsfit_cp:
         self.update_flux_threshold_mask()
 
     def get_lib(self):
-        os_family = platform.system()
-        if os_family == 'Windows':
-            libpath = os.path.join(os.getcwd(), 'win/gs_fit_1D.dll')
-            if not os.path.exists(libpath):
-                print('Please select a gsfit DLL or shared library')
-                # libpath = input()
-                if not os.path.exists(libpath):
-                    raise Exception('No valid DLL or shared library selected, not able to go on....')
-        else:
-            unix_dir = os.path.join(os.getcwd(), 'unix/')
+        if platform.system() == 'Linux' or platform.system() == 'Darwin':
+            unix_dir = os.path.join(os.path.dirname(__file__), 'unix/')
             libpath = os.path.join(unix_dir, 'fit_Spectrum_Kl.so')
-            if not os.path.exists(libpath):
-                makefile = os.path.join(unix_dir, 'makefile')
-                if makefile:
-                    cwd = os.getcwd()
-                    os.chdir(unix_dir)
-                    # subprocess.run(['rm', '*.o'])
-                    subprocess.run(['make', 'clean'])
-                    subprocess.run(['make'])
-                    os.chdir(cwd)
-                    if not os.path.exists(libpath):
-                        raise Exception('The attempt to make a shareable library failed, not able to go on....')
+            if platform.machine() == 'arm64':
+                unix_dir = os.path.join(os.path.dirname(__file__), 'unix/arm64/')
+                libpath = os.path.join(unix_dir, 'fit_Spectrum_Kl.so')
+        if platform.system() == 'Windows':
+            libpath = os.path.join(os.path.dirname(__file__), 'win/gs_fit_1D.dll')
+
+        if not os.path.exists(libpath):
+            makefile = os.path.join(unix_dir, 'makefile')
+            if makefile:
+                #cwd = os.path.dirname(__file__)
+                os.chdir(unix_dir)
+                # subprocess.run(['rm', '*.o'])
+                subprocess.run(['make', 'clean'])
+                subprocess.run(['make'])
+                if not os.path.exists(libpath):
+                    raise Exception('The attempt to make a shareable library failed, not able to go on....')
         return libpath
 
     def get_3d_fluxdata_array(self):
