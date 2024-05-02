@@ -269,8 +269,12 @@ def pyWrapper_Fit_Spectrum_Kl(cur_libpath, ninput, rinput, parguess, freq, spec_
     argv = (ctypes.POINTER(ctypes.c_double) * 8)(ninput_ct, rinput_ct, parguess_ct, freq_ct, spec_in_ct, aparms_ct,
                                                  eparms_ct, spec_out_ct)
 
-    libc_mw = ctypes.CDLL(cur_libpath)
-    mwfunc = libc_mw.get_mw_fit_
+    if platform.system() == 'Linux' or platform.system() == 'Darwin':
+        libc_mw = ctypes.CDLL(cur_libpath)
+        mwfunc = libc_mw.get_mw_fit_
+    if platform.system() == 'Windows':
+        libc_mw = ctypes.WinDLL(cur_libpath)
+        mwfunc = libc_mw.get_mw_fit
     res = mwfunc(ctypes.c_longlong(8), argv)
 
     if info is not None:
