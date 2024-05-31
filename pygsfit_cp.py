@@ -9,6 +9,8 @@ import dask
 import matplotlib.patches as patches
 import matplotlib.pyplot as plt
 import numpy as np
+import threading
+
 
 import pygsfit_cp_utils as ut
 import ndfits
@@ -16,13 +18,15 @@ import h5py
 
 
 class pygsfit_cp:
-    def __init__(self, filename=None, out_dir=None):
+    def __init__(self, filename=None, out_dir=None, fit_fov=None):
         self.filename = filename if filename is not None else os.path.join(os.path.dirname(__file__), 'demo/eovsa_allbd_demo.fits')
         #self.filename = filename
         self.out_dir = out_dir if out_dir else os.path.join(os.path.expanduser('~'), 'pygsfit_cp_output')
         if not os.path.exists(self.out_dir):
             os.makedirs(self.out_dir)
+        self.fit_fov = fit_fov # in format of fov [[x1, y1],[x2,y2]]
         self.libpath = self.get_lib()
+        self.margin_pix = 5
         self.meta, self.tb_data = ndfits.read(self.filename)
         self.start_freq = self.meta['ref_cfreqs'][0]  # Hz
         self.end_freq = self.meta['ref_cfreqs'][-1]  # Hz
@@ -47,6 +51,7 @@ class pygsfit_cp:
             self.get_3d_fluxdata_array()
         self.plot_mode = True
         self.update_flux_threshold_mask()
+        self.update_rms()
 
     def get_lib(self):
         if platform.system() == 'Linux' or platform.system() == 'Darwin':
@@ -89,7 +94,7 @@ class pygsfit_cp:
         """
         self.update_flux_threshold_mask()
         start_freq_idx = np.argmin(np.abs(self.meta['ref_cfreqs'] - self.start_freq))
-        end_freq_idx = np.argmin(np.abs(self.meta['ref_cfreqs'] - self.end_freq))
+        end_freq_idx = np.argmin(np.abs(self.meta['ref_cfreqs'] - self.end_freq))+1
         self.ffghz = np.array(self.meta['ref_cfreqs'][start_freq_idx:end_freq_idx] / 1.e9, dtype='float64')
         self.ninput[3] = len(self.ffghz)
         spec_in_list = []
@@ -114,44 +119,47 @@ class pygsfit_cp:
         print('{0} pixels to be fitted'.format(len(self.coordinates)))
         cfmode = "plotting (single pixel)" if self.plot_mode else "batch"
         print(f"will be fitted in {cfmode} mode")
-        user_response = input("Do you want to continue? Enter 'y' for Yes or 'n' for No: ").strip().lower()
-        while True:
-            if user_response == 'y':
-                print("Continuing...")
-                repeated_row = np.array([5.0, 0.2, 20.0], dtype=np.float64)
-                repeated_rows = np.tile(repeated_row, (8, 1))
-                final_parguess = np.asfortranarray(np.vstack((self.initial_parguess, repeated_rows)))
-                if mode == 'single':
-                    fit_res = pyWrapper_Fit_Spectrum_Kl(self.libpath, self.ninput, self.rinput, final_parguess,
-                                                        self.ffghz, spec_in_list[0])
-                    plot_fitting_res(fit_res, self.ffghz, spec_in_list[0])
-                    return 1
-                elif mode == 'batch':
-                    tasks = []
-                    for cidx, cur_spec_in in enumerate(spec_in_list):
-                        extra_info = {'filename': self.filename, 'start_freq_idx': start_freq_idx,
-                                      'end_freq_idx': end_freq_idx,
-                                      'parguess': final_parguess, 'ninput': self.ninput, 'rinput': self.rinput,
-                                      'coord': list(self.coordinates[cidx]),
-                                      'spec_in': spec_in_list[cidx], 'freq': self.ffghz, 'task_idx': cidx,
-                                      'out_dir': self.out_dir}
-                        tasks.append(dask.delayed(pyWrapper_Fit_Spectrum_Kl)(self.libpath, self.ninput, self.rinput,
-                                                                             final_parguess, self.ffghz,
-                                                                             spec_in_list[cidx], info=extra_info))
-                    out_filenames = dask.compute(*tasks)
-                    final_out_fname = os.path.join(self.out_dir,os.path.basename(self.filename).replace('fits', 'h5'))
-                    merge_task = dask.delayed(ut.combine_hdf5_files)(out_filenames, final_out_fname)
-                    merge_task.compute()
-                    return 1
-                else:
-                    print('Mode can only be single or batch')
+        #user_response = input("Do you want to continue? Enter 'y' for Yes or 'n' for No: ").strip().lower()
+        #while True:
+        #if user_response == 'y':
+        #print("Continuing...")
+        repeated_row = np.array([5.0, 0.2, 20.0], dtype=np.float64)
+        repeated_rows = np.tile(repeated_row, (8, 1))
+        final_parguess = np.asfortranarray(np.vstack((self.initial_parguess, repeated_rows)))
+        if mode == 'single':
+            fit_res = pyWrapper_Fit_Spectrum_Kl(self.libpath, self.ninput, self.rinput, final_parguess,
+                                                self.ffghz, spec_in_list[0])
+            plot_fitting_res(fit_res, self.ffghz, spec_in_list[0])
+            return 1
+        elif mode == 'batch':
+            tasks = []
+            for cidx, cur_spec_in in enumerate(spec_in_list):
+                extra_info = {'filename': self.filename, 'start_freq_idx': start_freq_idx,
+                              'end_freq_idx': end_freq_idx,
+                              'parguess': final_parguess, 'ninput': self.ninput, 'rinput': self.rinput,
+                              'coord': list(self.coordinates[cidx]),
+                              'spec_in': spec_in_list[cidx], 'freq_fitted': self.ffghz, 'task_idx': cidx,
+                              'out_dir': self.out_dir, 'rms_range': self.background_xyrange, 'data_saved_range': self.data_saved_range,
+                              'world_center': self.data_saved_world_center}
 
-                break  # Break out of the loop to continue execution within the function
-            elif user_response == 'n':
-                print("Exiting function...")
-                return  # Exit the current function
-            else:
-                print("Invalid input. Please enter 'y' for Yes or 'n' for No.")
+
+                tasks.append(dask.delayed(pyWrapper_Fit_Spectrum_Kl)(self.libpath, self.ninput, self.rinput,
+                                                                     final_parguess, self.ffghz,
+                                                                     spec_in_list[cidx], info=extra_info))
+            out_filenames = dask.compute(*tasks)
+            final_out_fname = os.path.join(self.out_dir,os.path.basename(self.filename).replace('fits', 'h5'))
+            merge_task = dask.delayed(ut.combine_hdf5_files)(out_filenames, final_out_fname)
+            merge_task.compute()
+            return 1
+        else:
+            print('Mode can only be single or batch')
+
+        #break  # Break out of the loop to continue execution within the function
+            # elif user_response == 'n':
+            #     print("Exiting function...")
+            #     return  # Exit the current function
+            # else:
+            #     print("Invalid input. Please enter 'y' for Yes or 'n' for No.")
 
     def update_flux_threshold_mask(self, threshold=None):
         """
@@ -159,21 +167,35 @@ class pygsfit_cp:
         :param threshold: All-band integration flux density in sfu
         :return:
         """
-        if threshold is not None:
-            self.integrated_threshold_sfu = threshold  # otherwise 1 sfu
-        if not hasattr(self, 'rms'):
-            self.update_rms()
-        # creat data mask in X and Y plane with provided threshold(in sfu)
-        # squeezed_flxdata = (data - rms[:, np.newaxis, np.newaxis]) * freq_ghz[:, np.newaxis, np.newaxis]
-        squeezed_flxdata = self.flux_data - self.rms[:, np.newaxis, np.newaxis]
-        summed_over_freq = squeezed_flxdata.sum(axis=0)
-        masked_data = np.ma.masked_where(summed_over_freq <= self.integrated_threshold_sfu, summed_over_freq)
-        self.mask = masked_data.mask
-        if np.all(self.mask):
-            print('The threshold is too large, none of the pixels is selected. Please try again')
-            return
-        y, x = np.where(~self.mask)
-        self.coordinates = list(zip(y, x))
+        if self.fit_fov is not None:
+            self.mask = ut.create_fov_mask(self.meta['refmap'], self.fit_fov)
+            y, x = np.where(self.mask)
+            self.coordinates = list(zip(y, x))
+        else:
+            if threshold is not None:
+                self.integrated_threshold_sfu = threshold  # otherwise 1 sfu
+            if not hasattr(self, 'rms'):
+                self.update_rms()
+            # creat data mask in X and Y plane with provided threshold(in sfu)
+            # squeezed_flxdata = (data - rms[:, np.newaxis, np.newaxis]) * freq_ghz[:, np.newaxis, np.newaxis]
+            squeezed_flxdata = self.flux_data - self.rms[:, np.newaxis, np.newaxis]
+            summed_over_freq = squeezed_flxdata.sum(axis=0)
+            masked_data = np.ma.masked_where(summed_over_freq <= self.integrated_threshold_sfu, summed_over_freq)
+            self.mask = masked_data.mask
+            if np.all(self.mask):
+                print('The threshold is too large, none of the pixels is selected. Please try again')
+                return
+            y, x = np.where(~self.mask)
+            self.coordinates = list(zip(y, x))
+        y_values = [coord[0] for coord in self.coordinates]
+        x_values = [coord[1] for coord in self.coordinates]
+        min_y = max(min(y_values)-self.margin_pix, 0)
+        max_y = min(max(y_values)+self.margin_pix, self.meta['refmap'].data.shape[0])
+        min_x = max(min(x_values)-self.margin_pix, 0)
+        max_x = min(max(x_values)+self.margin_pix, self.meta['refmap'].data.shape[1])
+        self.data_saved_range = [[min_y,max_y], [min_x, max_x]]
+        world_center = self.meta['refmap'].pixel_to_world(int((min_x+max_x)/2)*u.pix,int((min_y+max_y)/2)*u.pix )
+        self.data_saved_world_center = [world_center.Tx.value, world_center.Ty.value]
 
     def update_rms(self, xyrange=None):
         """
@@ -242,6 +264,7 @@ class pygsfit_cp:
             print("=============")
 
 
+lock = threading.Lock()
 def pyWrapper_Fit_Spectrum_Kl(cur_libpath, ninput, rinput, parguess, freq, spec_in, info=None):
     """
     A python wrapper to call  Dr.Fleishman's Fortran code: fit_Spectrum_Kl.for/fit_Spectrum_Kl.so, all the input should be
@@ -268,15 +291,14 @@ def pyWrapper_Fit_Spectrum_Kl(cur_libpath, ninput, rinput, parguess, freq, spec_
     ninput_ct, rinput_ct, parguess_ct, freq_ct, spec_in_ct, aparms_ct, eparms_ct, spec_out_ct = ct_pointers
     argv = (ctypes.POINTER(ctypes.c_double) * 8)(ninput_ct, rinput_ct, parguess_ct, freq_ct, spec_in_ct, aparms_ct,
                                                  eparms_ct, spec_out_ct)
-
-    if platform.system() == 'Linux' or platform.system() == 'Darwin':
-        libc_mw = ctypes.CDLL(cur_libpath)
-        mwfunc = libc_mw.get_mw_fit_
-    if platform.system() == 'Windows':
-        libc_mw = ctypes.WinDLL(cur_libpath)
-        mwfunc = libc_mw.get_mw_fit
-    res = mwfunc(ctypes.c_longlong(8), argv)
-
+    with lock:
+        if platform.system() == 'Linux' or platform.system() == 'Darwin':
+            libc_mw = ctypes.CDLL(cur_libpath)
+            mwfunc = libc_mw.get_mw_fit_
+        if platform.system() == 'Windows':
+            libc_mw = ctypes.WinDLL(cur_libpath)
+            mwfunc = libc_mw.get_mw_fit
+        res = mwfunc(ctypes.c_longlong(8), argv)
     if info is not None:
         out_fname = os.path.join(info['out_dir'], 'task_{0:0=4d}.hdf5'.format(info['task_idx']))
         #info_serialized = json.dumps(info)

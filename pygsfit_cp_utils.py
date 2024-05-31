@@ -107,4 +107,49 @@ def combine_hdf5_files(file_list, output_file):
         os.remove(file_path)
         print(f"Deleted {file_path}")
 
+def create_fov_mask(sunpy_map, fov):
+    """
+    Create a boolean mask for the specified FOV on a SunPy map.
 
+    Parameters:
+    sunpy_map (sunpy.map.GenericMap): The SunPy map.
+    fov (list): The field of view in the format [[x_bl, y_bl], [x_tr, y_tr]] in arcseconds.
+
+    Returns:
+    numpy.ndarray: A boolean mask with the same dimensions as the SunPy map.
+    """
+    # Convert FOV world coordinates to pixel coordinates
+    bottom_left = sunpy_map.world_to_pixel(SkyCoord(fov[0][0]*u.arcsec, fov[0][1]*u.arcsec, frame=sunpy_map.coordinate_frame))
+    top_right = sunpy_map.world_to_pixel(SkyCoord(fov[1][0]*u.arcsec, fov[1][1]*u.arcsec, frame=sunpy_map.coordinate_frame))
+    #top_right = sunpy_map.world_to_pixel(fov[1][0]*u.arcsec, fov[1][1]*u.arcsec)
+
+    # Extract the pixel coordinates as integers
+    x_bl, y_bl = int(bottom_left.x.value), int(bottom_left.y.value)
+    x_tr, y_tr = int(top_right.x.value), int(top_right.y.value)
+
+    # Ensure the coordinates are within the map boundaries
+    x_bl = max(0, x_bl)
+    y_bl = max(0, y_bl)
+    x_tr = min(sunpy_map.data.shape[1], x_tr)
+    y_tr = min(sunpy_map.data.shape[0], y_tr)
+
+    # Create the mask
+    mask = np.zeros(sunpy_map.data.shape, dtype=bool)
+    mask[y_bl:y_tr, x_bl:x_tr] = True
+
+    return mask
+
+def makelist(tdir='', keyword1='', keyword2='', exclude=None):
+    li = []
+    # for root, dirs, files in os.walk(tdir):
+    root = os.getcwd()
+    files = os.listdir(tdir)
+    for file in files:
+        if exclude is None:
+            if keyword1 in file and keyword2 in file:
+                li.append(os.path.join(tdir, file))
+        else:
+            if keyword1 in file and keyword2 in file and exclude not in file:
+                li.append(os.path.join(tdir, file))
+
+    return li

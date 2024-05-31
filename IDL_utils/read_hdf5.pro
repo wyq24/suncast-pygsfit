@@ -82,6 +82,29 @@ FUNCTION hdf5_read_dataset,id,name,shallow=shallow
   endelse
 END
 
+;FUNCTION hdf5_read_dataset, id, name, shallow=shallow
+;  ;; Get data
+;  dataset_id = h5d_open(id, name)
+;  data = h5d_read(dataset_id)
+;
+;  ;; Get any attributes
+;  atts = hdf5_read_attributes(dataset_id, bad_names="data")
+;
+;  ;; Close the dataset
+;  h5d_close, dataset_id
+;
+;  if keyword_set(shallow) then begin
+;    return, data
+;  endif else begin
+;    ;; If attributes contain only one key 'DATA', return the data directly
+;    if N_TAGS(atts) EQ 1 AND TAG_NAMES(atts)[0] EQ 'DATA' then begin
+;      return, data
+;    endif else begin
+;      return, create_struct(atts, "data", data)
+;    endelse
+;  endelse
+;END
+
 FUNCTION hdf5_read_group,id,shallow=shallow
 
   FORWARD_FUNCTION hdf5_read_group
