@@ -2764,7 +2764,11 @@ class App(QMainWindow):
         self.fit_threads.clear()
         self.calc_roi_spec(None)
         self.update_fitmask()
-        self.tmp_folder = tempfile.mkdtemp(dir = self.batch_fitting_dir)
+        #self.tmp_folder = tempfile.mkdtemp(dir = self.batch_fitting_dir)
+        cur_tmp_folder = self.batch_fitting_dir+'/'+os.path.basename(self.eoimg_fname).replace('.fits', '')
+        if not os.path.exists(cur_tmp_folder):
+            os.mkdir(cur_tmp_folder)
+        self.tmp_folder = cur_tmp_folder
         self.tmp_save_folder = self.tmp_folder
         self.progress_bar = QProgressBar(self)
         self.progress_bar.setMaximum(self.total_tasks)
@@ -2890,6 +2894,9 @@ class App(QMainWindow):
         lines.append("f_obj.current_roi_idx = 0\n")
         lines.append("f_obj.rois = [[]]\n")
         lines.append("f_obj.add_pre_defined_roi(serialized_rois)\n")
+        lines.append("# f_obj.batch_fitting_dir = 'dir here if you do not want to select saving path interactively'\n")
+        lines.append("if not hasattr(f_obj, 'batch_fitting_dir'):\n")
+        lines.append("    f_obj.pathBatchFitRes()\n")
         lines.append("f_obj.pathBatchFitRes()\n")
         lines.append("f_obj.rois_to_fits()\n")
         lines.append("f_obj.savedata = True\n")
