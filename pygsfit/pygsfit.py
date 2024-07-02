@@ -1087,8 +1087,14 @@ class App(QMainWindow):
             ax0 = self.update_axes_projection(ax0, projection=self.meta['refmap'])
         if self.has_eovsamap:
             nspw = self.meta['nfreq']
-            self.eoimg_date = eoimg_date = Time(self.meta['refmap'].date.mjd +
+            try:
+                self.eoimg_date = eoimg_date = Time(self.meta['refmap'].date.mjd +
                                                 self.meta['refmap'].exposure_time.value / 2. / 24 / 3600, format='mjd')
+            except:
+                print('EXPtime can not be found, use the saved date solely')
+                self.eoimg_date = eoimg_date = Time(self.meta['refmap'].date.mjd, format='mjd')
+
+
             eotimestr = eoimg_date.isot[:-4]
             #rsun_obs = sunpy.coordinates.sun.angular_radius(eoimg_date).value
             #solar_limb = patches.Circle((0, 0), radius=rsun_obs, fill=False, color='k', lw=1, linestyle=':')
@@ -1253,6 +1259,7 @@ class App(QMainWindow):
             #     (self.meta['nfreq'], self.meta['ny'], self.meta['nx']))
             # self.pgdata = self.data[self.pol_select_idx, :, :, :].reshape(
             #     (self.meta['nfreq'], self.meta['ny'], self.meta['nx']))
+            print('loading the eovsa fits file')
             self.pgdata = self.data[self.pol_select_idx,self.cur_frame_idx, :, :, :].reshape(
                 (self.meta['nfreq'], self.meta['ny'], self.meta['nx']))
             #self.pgdata = self.data[self.pol_select_idx,self.cur_frame_idx, :, :, :]
