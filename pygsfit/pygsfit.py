@@ -2486,20 +2486,39 @@ class App(QMainWindow):
                                                'spec_in_tb': self.spec_in_tb},
                                        max_nfev=max_nfev, nan_policy='omit')
                 emcee_params = mini.minimize(method='emcee', **emcee_kws)
-                self.fit_params_res = emcee_params.params
-
-                print(lmfit.report_fit(emcee_params.params))
                 chain = emcee_params.flatchain
                 shape = chain.shape[0]
-                for n, key in enumerate(self.fit_params_res):
-                #for n, key in enumerate(emcee_params.params):
-                    if key=='lnf':
-                        continue
+                tmp_nelder_params = copy.deepcopy(self.fit_params)
+                # use the median value of the mcmc as the init guess to do a nelder fitting again
+                for cpkey in tmp_nelder_params.keys():
                     try:
-                        self.param_fit_value_widgets[n].setValue(np.median(chain[key][burn:]))
-                        mi.params[key].set(value=np.median(chain[key][burn:]))
+                        tmp_nelder_params[cpkey].value=np.median(chain[cpkey][burn:])
                     except KeyError:
                         pass
+
+                mini = lmfit.Minimizer(self.fit_function, tmp_nelder_params,
+                                       fcn_args=(freqghz_tofit,),
+                                       fcn_kws={'spec': spec_tofit, 'spec_err': spec_err_tofit,
+                                                'spec_in_tb': self.spec_in_tb},
+                                       max_nfev=max_nfev, nan_policy='omit')
+                method = 'Nelder'
+                mi = mini.minimize(method=method, **fit_kws_nelder)
+                #self.fit_params_res = emcee_params.params
+                self.fit_params_res = mi.params
+
+                print(lmfit.report_fit(emcee_params.params))
+
+                if self.update_gui:
+                    for n, key in enumerate(self.fit_params_res):
+                    #for n, key in enumerate(emcee_params.params):
+                        if key=='lnf':
+                            continue
+                        try:
+                            #self.param_fit_value_widgets[n].setValue(np.median(chain[key][burn:]))
+                            self.param_fit_value_widgets[n].setValue(self.fit_params_res[key].value)
+                            #mi.params[key].set(value=np.median(chain[key][burn:]))
+                        except KeyError:
+                            pass
                 freqghz_toplot = np.logspace(0, np.log10(20.), 100)
                 med_params = copy.deepcopy(mi.params)
                 med_spec_fit_res = self.fit_function(mi.params, freqghz_toplot, spec_in_tb=self.spec_in_tb)
@@ -2523,7 +2542,7 @@ class App(QMainWindow):
                         self.speccanvas.addItem(self.spec_fitplot_med)
 
                 #spec_fit_res = self.fit_function(mi.params, freqghz_toplot, spec_in_tb=self.spec_in_tb)
-                mi.params = med_params
+                #mi.params = med_params
                 spec_fit_res = med_spec_fit_res
                 exported_fittig_info.append((emcee_params, mi))
 
@@ -2626,30 +2645,16 @@ class App(QMainWindow):
 
         def create_parameters_table(fit_params, mi_params):
             param_data = []
-            for name, param in fit_params.items():
+            for name, param in mi_params.items():
                 stderr = mi_params[name].stderr if mi_params[name].stderr is not None else np.nan
                 param_data.append((name, param.value, param.min, param.max, param.vary, stderr))
 
             dtype = [('name', 'S10'), ('value', 'f8'), ('min', 'f8'), ('max', 'f8'), ('vary', 'bool'), ('stderr', 'f8')]
             structured_array = np.array(param_data, dtype=dtype)
-            return fits.BinTableHDU.from_columns(structured_array)
+            #return fits.BinTableHDU.from_columns(structured_array)
+            return structured_array
 
 
-        # def create_attr_array(fit_params, mi_params, param_name):
-        #     if param_name not in mi_params:
-        #         return np.array([np.nan, np.nan, np.nan, np.nan, np.nan])  # Default values for missing parameter
-        #     stderr = mi_params[param_name].stderr if mi_params[param_name].stderr is not None else np.nan
-        #     return np.array([
-        #         fit_params[param_name].init_value if param_name in fit_params else np.nan,
-        #         fit_params[param_name].min if param_name in fit_params else np.nan,
-        #         fit_params[param_name].max if param_name in fit_params else np.nan,
-        #         mi_params[param_name].value,
-        #         stderr
-        #     ])
-        #
-        # param_names = ['Bx100G', 'log_nnth', 'delta', 'Emin_keV', 'Emax_MeV', 'theta', 'log_nth', 'T_MK', 'depth_asec', 'area_asec2']
-        # for i, name in enumerate(param_names):
-        #     header['PARAM{}'.format(i)] = str(create_attr_array(self.fit_params, minimiz_res.params, name))
 
         if self.spec_in_tb:
             spec = roi.tb_max
@@ -2665,7 +2670,9 @@ class App(QMainWindow):
         obs_freq_hdu = fits.ImageHDU(self.cfreqs, name='OBS_FREQ')
         model_freq_hdu = fits.ImageHDU(freqghz_toplot, name='MODEL_FREQ')
         model_spectrum_hdu = fits.ImageHDU(spec_fit_res, name='MODEL_SPECTRUM')
-        params_table_hdu = create_parameters_table(self.fit_params, minimiz_res.params)
+        params_table = create_parameters_table(self.fit_params, minimiz_res.params)
+        params_table_hdu = fits.BinTableHDU(params_table, name='PARAMETERS')
+
 
 
         if self.update_gui:
@@ -2898,7 +2905,7 @@ class App(QMainWindow):
         lines.append("if not hasattr(f_obj, 'batch_fitting_dir'):\n")
         lines.append("    f_obj.pathBatchFitRes()\n")
         lines.append("f_obj.pathBatchFitRes()\n")
-        lines.append("f_obj.rois_to_fits()\n")
+#        lines.append("f_obj.rois_to_fits()\n")
         lines.append("f_obj.savedata = True\n")
         lines.append("f_obj.completed_tasks = 0\n")
         lines.append("f_obj.parallel_fitting()\n")
