@@ -28,4 +28,4 @@
 
 3. **Generate Parameter Maps**
    - Run the IDL script (`make_params_maps.pro`) directly in `sswidl` to generate an IDL save file (`parameters_map.sav`).
-   - The resulting save file can be opened in `gsfitview` or `sswidl`.
+   - The resulting save file can be opened in `gsfitview`, `sswidl`.
