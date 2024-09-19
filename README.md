@@ -1,20 +1,26 @@
 # pygsfit_cp
-# pygsfit_cp
 
-`pygsfit_cp` is a radio imaging spectroscopy package dedicated to performing spectrum fitting. There are two ways to use this package:
+`pygsfit_cp` is a radio imaging spectroscopy package dedicated to performing spectrum fitting. 
+### INSTALLATION:
+### New conda/virtual env (highly recommanded) please replace myenv with a desired name
+`conda create --name myenv`
+`conda activate myenv`
+`pip install pygsfit_cp`
 
+### USAGE:
+Step1: There are two ways to do step 1. 
 ## Method One (Recommended)
 
-1. **Initial Setup and Exploration**
-   - a. Run `/demo/pygsfit_cp.ipynb` to identify appropriate initial gas parameters and fitting ranges for each parameter.
-   - b. Define and visualize the Region of Interest (ROI).
+a. **Initial Setup and Exploration**
+   - Run `/demo/pygsfit_cp.ipynb` to identify appropriate initial gas parameters and fitting ranges for each parameter.
+   - Define and visualize the Region of Interest (ROI).
 
-2. **Export Batch Script**
+b. **Export Batch Script**
    - After obtaining the ideal fitting results, export a batch mode fitting script to perform the fitting with the same parameters.
 
 ## Method Two
 
-1. **Direct Batch Mode**
+a. **Direct Batch Mode**
    - If you are already familiar with your data, directly run `/demo/batch_mode_script.py`.
    - Manually input all the parameters of the ROI.
 
