@@ -1,3 +1,4 @@
+import copy
 import ctypes
 import os
 import pickle
@@ -10,6 +11,9 @@ import matplotlib.patches as patches
 import matplotlib.pyplot as plt
 import numpy as np
 import threading
+from dask.distributed import Client
+import json
+
 
 
 import pygsfit_cp_utils as ut
@@ -19,22 +23,28 @@ import h5py
 
 class pygsfit_cp:
     def __init__(self, filename=None, out_dir=None, fit_fov=None):
-        self.filename = filename if filename is not None else os.path.join(os.path.dirname(__file__), 'demo/eovsa_allbd_demo.fits')
+        self.filename = filename if filename is not None else os.path.join(os.path.dirname(__file__), 'demo/eovsa_allbd_demo_0.fits')
         #self.filename = filename
         self.out_dir = out_dir if out_dir else os.path.join(os.path.expanduser('~'), 'pygsfit_cp_output')
         if not os.path.exists(self.out_dir):
             os.makedirs(self.out_dir)
-        self.fit_fov = fit_fov # in format of fov [[x1, y1],[x2,y2]]
+
         self.libpath = self.get_lib()
         self.margin_pix = 5
         self.meta, self.tb_data = ndfits.read(self.filename)
+        cx1 = self.meta['header']['CRVAL1'] - self.meta['header']['CDELT1']*  self.meta['header']['CRPIX1']*0.5
+        cx2 = self.meta['header']['CRVAL1'] + self.meta['header']['CDELT1']*  self.meta['header']['CRPIX1']*0.5
+        cy1 = self.meta['header']['CRVAL2'] - self.meta['header']['CDELT2'] * self.meta['header']['CRPIX2'] * 0.5
+        cy2 = self.meta['header']['CRVAL2'] + self.meta['header']['CDELT2'] * self.meta['header']['CRPIX2'] * 0.5
+        self.fit_fov = fit_fov if fit_fov is not None else [[cx1,cy1],[cx2,cy2]] # in format of fov [[x1, y1],[x2,y2]]
         self.start_freq = self.meta['ref_cfreqs'][0]  # Hz
         self.end_freq = self.meta['ref_cfreqs'][-1]  # Hz
         self.freq_ghz = self.meta['ref_cfreqs'] / 1e9
         self.integrated_threshold_sfu = 1  # sfu
-        self.rms_factor = 4  # Uncertainty_rms = RMS * rms_factor
+        self.rms_factor = 1  # Uncertainty_rms = RMS * rms_factor
         self.background_xyrange = [[0.15, 0.75], [0.25,
                                                   0.85]]  # percentage of the start and end range in X and Y, should be within [0,1]
+        self.pix_mask=None
         self.ninput = np.array([7, 0, 1, 30, 1, 1],
                                dtype='int32')  # Nparms, Angular_mode,Npix, Nfreq(will be replaced) fitting mode, stokes
         self.rinput = np.array([0.17, 1e-6, 1.0, 4.0, 8.0, 0.015], dtype='float64')  # real_input
@@ -106,6 +116,8 @@ class pygsfit_cp:
                 self.coordinates = [inp_coord[::-1]]
             else:
                 print('The first pixel of the selected ROI will be fitted')
+        else:
+            self.plot_mode=False
         for coord_idx, coord in enumerate(self.coordinates):
             spec_in = np.zeros((1, end_freq_idx - start_freq_idx, 4), dtype='float64', order='F')
             spec_in[0, :, 0] = self.flux_data[start_freq_idx:end_freq_idx, coord[0], coord[1]]
@@ -131,7 +143,27 @@ class pygsfit_cp:
                                                 self.ffghz, spec_in_list[0])
             plot_fitting_res(fit_res, self.ffghz, spec_in_list[0])
             return 1
+        # elif mode == 'batch':
+        #     tasks = []
+        #     for cidx, cur_spec_in in enumerate(spec_in_list):
+        #         extra_info = {'filename': self.filename, 'start_freq_idx': start_freq_idx,
+        #                       'end_freq_idx': end_freq_idx,
+        #                       'parguess': final_parguess, 'ninput': self.ninput, 'rinput': self.rinput,
+        #                       'coord': list(self.coordinates[cidx]),
+        #                       'spec_in': spec_in_list[cidx], 'freq_fitted': self.ffghz, 'task_idx': cidx,
+        #                       'out_dir': self.out_dir, 'rms_range': self.background_xyrange, 'data_saved_range': self.data_saved_range,
+        #                       'world_center': self.data_saved_world_center}
+        #
+        #         # Number of parallel tasks
+        #         cspec_in = copy.deepcopy((spec_in_list[cidx]))
+        #
+        #         # tasks.append(dask.delayed(pyWrapper_Fit_Spectrum_Kl)(self.libpath, self.ninput, self.rinput,
+        #         #                                                      final_parguess, self.ffghz,
+        #         #                                                      spec_in_list[cidx], info=extra_info))
+        #         tasks.append(dask.delayed(pyWrapper_Fit_Spectrum_Kl)(copy.deepcopy(self.libpath), copy.deepcopy(self.ninput), copy.deepcopy(self.rinput), copy.deepcopy(final_parguess),
+        #                              copy.deepcopy(self.ffghz), cspec_in, info=copy.deepcopy(extra_info)))
         elif mode == 'batch':
+            client = Client(processes=True, n_workers=4)
             tasks = []
             for cidx, cur_spec_in in enumerate(spec_in_list):
                 extra_info = {'filename': self.filename, 'start_freq_idx': start_freq_idx,
@@ -139,18 +171,27 @@ class pygsfit_cp:
                               'parguess': final_parguess, 'ninput': self.ninput, 'rinput': self.rinput,
                               'coord': list(self.coordinates[cidx]),
                               'spec_in': spec_in_list[cidx], 'freq_fitted': self.ffghz, 'task_idx': cidx,
-                              'out_dir': self.out_dir, 'rms_range': self.background_xyrange, 'data_saved_range': self.data_saved_range,
+                              'out_dir': self.out_dir, 'rms_range': self.background_xyrange,
+                              'data_saved_range': self.data_saved_range,
                               'world_center': self.data_saved_world_center}
 
+                cspec_in = copy.deepcopy((spec_in_list[cidx]))
 
-                tasks.append(dask.delayed(pyWrapper_Fit_Spectrum_Kl)(self.libpath, self.ninput, self.rinput,
-                                                                     final_parguess, self.ffghz,
-                                                                     spec_in_list[cidx], info=extra_info))
-            out_filenames = dask.compute(*tasks)
+                task = dask.delayed(pyWrapper_Fit_Spectrum_Kl)(copy.deepcopy(self.libpath),
+                                                               copy.deepcopy(self.ninput),
+                                                               copy.deepcopy(self.rinput),
+                                                               copy.deepcopy(final_parguess),
+                                                               copy.deepcopy(self.ffghz), cspec_in,
+                                                               info=copy.deepcopy(extra_info))
+                tasks.append(task)
+
+            # Compute tasks using dask
+            out_filenames = dask.compute(*tasks, scheduler='processes')
+            #out_filenames = dask.compute(*tasks)
             final_out_fname = os.path.join(self.out_dir,os.path.basename(self.filename).replace('fits', 'h5'))
-            merge_task = dask.delayed(ut.combine_hdf5_files)(out_filenames, final_out_fname)
+            merge_task = dask.delayed(ut.combine_hdf5_files)(out_filenames, final_out_fname, True)
             merge_task.compute()
-            return 1
+            return final_out_fname
         else:
             print('Mode can only be single or batch')
 
@@ -161,19 +202,19 @@ class pygsfit_cp:
             # else:
             #     print("Invalid input. Please enter 'y' for Yes or 'n' for No.")
 
-    def update_flux_threshold_mask(self, threshold=None):
+    def update_flux_threshold_mask(self):
         """
-
-        :param threshold: All-band integration flux density in sfu
-        :return:
+            if self.pix_mask is provided, fit_fov would not be used
+            if self.integrated_threshold_sfu<=0.0, would not be used
         """
-        if self.fit_fov is not None:
-            self.mask = ut.create_fov_mask(self.meta['refmap'], self.fit_fov)
-            y, x = np.where(self.mask)
-            self.coordinates = list(zip(y, x))
+        if self.pix_mask is None:
+            self.fov_mask = ut.create_fov_mask(self.meta['refmap'], self.fit_fov)
         else:
-            if threshold is not None:
-                self.integrated_threshold_sfu = threshold  # otherwise 1 sfu
+            self.fov_mask = self.pix_mask
+        fov_y, fov_x = np.where(~self.fov_mask)
+        self.fov_coordinates = list(zip(fov_y, fov_x))
+        self.final_mask = self.fov_mask
+        if self.integrated_threshold_sfu>=0.0:
             if not hasattr(self, 'rms'):
                 self.update_rms()
             # creat data mask in X and Y plane with provided threshold(in sfu)
@@ -181,20 +222,21 @@ class pygsfit_cp:
             squeezed_flxdata = self.flux_data - self.rms[:, np.newaxis, np.newaxis]
             summed_over_freq = squeezed_flxdata.sum(axis=0)
             masked_data = np.ma.masked_where(summed_over_freq <= self.integrated_threshold_sfu, summed_over_freq)
-            self.mask = masked_data.mask
-            if np.all(self.mask):
+            self.threshold_mask = masked_data.mask
+            if np.all(self.threshold_mask):
                 print('The threshold is too large, none of the pixels is selected. Please try again')
                 return
-            y, x = np.where(~self.mask)
-            self.coordinates = list(zip(y, x))
-        y_values = [coord[0] for coord in self.coordinates]
-        x_values = [coord[1] for coord in self.coordinates]
-        min_y = max(min(y_values)-self.margin_pix, 0)
-        max_y = min(max(y_values)+self.margin_pix, self.meta['refmap'].data.shape[0])
-        min_x = max(min(x_values)-self.margin_pix, 0)
-        max_x = min(max(x_values)+self.margin_pix, self.meta['refmap'].data.shape[1])
-        self.data_saved_range = [[min_y,max_y], [min_x, max_x]]
-        world_center = self.meta['refmap'].pixel_to_world(int((min_x+max_x)/2)*u.pix,int((min_y+max_y)/2)*u.pix )
+            self.final_mask = np.logical_or(self.fov_mask, self.threshold_mask)
+        y, x = np.where(~self.final_mask)
+        self.coordinates = list(zip(y, x))
+        y_values = [coord[0] for coord in self.fov_coordinates]
+        x_values = [coord[1] for coord in self.fov_coordinates]
+        self.min_y = max(min(y_values)-self.margin_pix, 0)
+        self.max_y = min(max(y_values)+self.margin_pix, self.meta['refmap'].data.shape[0])
+        self.min_x = max(min(x_values)-self.margin_pix, 0)
+        self.max_x = min(max(x_values)+self.margin_pix, self.meta['refmap'].data.shape[1])
+        self.data_saved_range = [[self.min_y,self.max_y], [self.min_x, self.max_x]]
+        world_center = self.meta['refmap'].pixel_to_world(int((self.min_x+self.max_x)/2)*u.pix,int((self.min_y+self.max_y)/2)*u.pix )
         self.data_saved_world_center = [world_center.Tx.value, world_center.Ty.value]
 
     def update_rms(self, xyrange=None):
@@ -225,7 +267,7 @@ class pygsfit_cp:
         # plot the eovsa image at selected freq in GHz
         extent = ut.extent_convertor(self.meta['header'])
         img = plt.imshow(self.flux_data[target_idx, :, :], origin='lower', extent=extent, cmap='jet')
-        img_m = plt.imshow(~self.mask, origin='lower', extent=extent, cmap='viridis',
+        img_m = plt.imshow(~self.final_mask, origin='lower', extent=extent, cmap='viridis',
                            alpha=0.5)  # plot the mask based on the threshold
 
         # Plot a box showing the region where RMS is calculated
@@ -238,12 +280,17 @@ class pygsfit_cp:
         plt.gca().add_patch(
             patches.Rectangle(box_origin_solar, box_width_solar, box_height_solar, linewidth=1, edgecolor='r',
                               facecolor='none'))
+        plt.gca().add_patch(
+            patches.Rectangle((self.fit_fov[0][0], self.fit_fov[0][1]), self.fit_fov[1][0]-self.fit_fov[0][0], self.fit_fov[1][1]-self.fit_fov[0][1], linewidth=1, edgecolor='g',
+                              facecolor='none'))
 
         plt.gca().set_xlabel('Solar X \n [arcsec]')
         plt.gca().set_ylabel('Solar Y \n [arcsec]')
-        plt.title('{0} pixels are selected'.format(np.sum(~self.mask)))
+        plt.title('{0} pixels are selected'.format(np.sum(~self.final_mask)))
         rms_position = (box_origin_solar[0] + 0.02 * box_width_solar, box_origin_solar[1] + 0.02 * box_height_solar)
+        fov_position = (self.fit_fov[0][0], self.fit_fov[0][1]-10)
         plt.text(*rms_position, 'Background\n Region', color='r', fontsize=9, va='bottom')
+        plt.text(*fov_position, 'FOV', color='g', fontsize=9, va='bottom')
         cbar = plt.colorbar(img)
         cbar.set_label('Flux Density [sfu]')
 
@@ -262,6 +309,79 @@ class pygsfit_cp:
             print("=============")
             print(content)
             print("=============")
+
+
+    def save_notebook_cells(self, notebook_path, pyfile_path):
+        """
+        Save code cells from a Jupyter notebook to a Python script file in a main() format.
+
+        :param notebook_path: Path to the input Jupyter notebook file.
+        :param pyfile_path: Path to the output Python script file.
+        """
+        to_script_tag = 'to_script tag'
+        init_tag = '#init multiple\n'
+
+        # Load the notebook
+        with open(notebook_path, 'r') as nbfile:
+            notebook = json.load(nbfile)
+
+        # Open the output Python file
+        with open(pyfile_path, 'w') as pyfile:
+            #Write the imports
+            code_block_import = """
+                from pygsfit_cp import *
+                import os
+                import pkg_resources
+                from pygsfit_cp_utils import *
+                import results_convertor as rc
+            """
+            indented_source = '\n'.join(line.lstrip() for line in code_block_import.splitlines())
+            pyfile.write(indented_source + '\n\n')
+            # Write the main function header
+            pyfile.write('def main():\n')
+
+            # If multiple_frames is True, find and write the '#init multiple' block first
+            #if multiple_frames:
+            for cell in notebook['cells']:
+                if cell['cell_type'] == 'code':
+                    if init_tag in cell['source']:
+                        # Add the '#init multiple' block indented for the main() function
+                        indented_source = ''.join('    ' + line for line in cell['source'])
+                        pyfile.write(indented_source + '\n\n')
+                        break
+            for cell in notebook['cells']:
+                if cell['cell_type'] == 'code':
+                    cell_source = ''.join(cell['source'])
+                    if to_script_tag in cell_source:
+                        indented_source = ''.join('        ' + line for line in cell['source'])
+                        pyfile.write(indented_source + '\n\n')
+            code_block_1 = """
+            cur_map_file = rc.create_params_map(cur_save_file)
+            map_files_by_frame.append(cur_map_file)
+            fitting_files_by_frame.append(cur_save_file)
+            """
+            indented_source = '\n'.join('        ' + line.lstrip() for line in code_block_1.splitlines())
+            pyfile.write(indented_source + '\n\n')
+            code_block_2 = """
+            fitting_res_file = os.path.join(gs.out_dir,'fitting_results.h5')
+            combine_hdf5_files(file_list=fitting_files_by_frame,output_file=fitting_res_file) #please make sure the original files would NOT be deleted!
+            print('All the fitting results are save to ', fitting_res_file)
+            print('The map files are: ' )
+            print(map_files_by_frame)
+            rh_pro = os.path.join(package_path,'IDL_utils','read_hdf5.pro')
+            pp_pro = os.path.join(package_path,'IDL_utils','process_params_maps.pro')
+            mp_pro = os.path.join(gs.out_dir,'make_params_maps.pro')
+            rc.create_idl_pro_file(rh_pro, pp_pro, map_files_by_frame, mp_pro)
+            print('Fitting and priliminary processed are finished, please run {} in IDL to create the sav file for gsviewer')
+            """
+            indented_source = '\n'.join('    ' + line.lstrip() for line in code_block_2.splitlines())
+            pyfile.write(indented_source + '\n\n')
+
+            # Write the main execution block
+            pyfile.write("\n\nif __name__ == '__main__':\n")
+            pyfile.write("    main()\n")
+
+        print(pyfile_path, 'is saved.')
 
 
 lock = threading.Lock()

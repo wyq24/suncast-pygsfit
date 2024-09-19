@@ -3,6 +3,11 @@ import numpy as np
 from astropy.coordinates import SkyCoord
 import h5py
 import os
+import os
+import zipfile
+import tarfile
+from astropy.io import fits
+import ndfits
 
 def extent_convertor(cheader):
     # Replace direct assignments with lookups
@@ -96,16 +101,17 @@ def copy_items(source_group, target_group):
             new_group = target_group.create_group(item_name)
             copy_items(item, new_group)
 
-def combine_hdf5_files(file_list, output_file):
+def combine_hdf5_files(file_list, output_file, delete_original=False):
     with h5py.File(output_file, 'w') as new_hdf:
         for file_path in file_list:
             group_name = os.path.splitext(os.path.basename(file_path))[0]
             group = new_hdf.create_group(group_name)
             with h5py.File(file_path, 'r') as source_hdf:
                 copy_items(source_hdf, group)
-    for file_path in file_list:
-        os.remove(file_path)
-        print(f"Deleted {file_path}")
+    if delete_original:
+        for file_path in file_list:
+            os.remove(file_path)
+            print(f"Deleted {file_path}")
 
 def create_fov_mask(sunpy_map, fov):
     """
@@ -137,7 +143,7 @@ def create_fov_mask(sunpy_map, fov):
     mask = np.zeros(sunpy_map.data.shape, dtype=bool)
     mask[y_bl:y_tr, x_bl:x_tr] = True
 
-    return mask
+    return ~mask
 
 def makelist(tdir='', keyword1='', keyword2='', exclude=None):
     li = []
@@ -153,3 +159,68 @@ def makelist(tdir='', keyword1='', keyword2='', exclude=None):
                 li.append(os.path.join(tdir, file))
 
     return li
+
+
+import shutil
+
+def process_input_path(input_path):
+    """
+    Processes the input path. If the input is a folder, returns all .fits files in the folder.
+    If the input is a compressed file (zip, tar, etc.), it extracts the file into the same directory
+    and returns all .fits files in the extracted folder.
+
+    :param input_path: Path to a directory or a compressed file.
+    :return: List of .fits files in the directory.
+    """
+    if is_valid_fits_file(input_path):
+        return [input_path]
+    # Check if input path is a directory
+    if os.path.isdir(input_path):
+        # If it's a directory, return the list of .fits files in this directory
+        fits_files = [os.path.join(input_path, f) for f in os.listdir(input_path) if f.endswith('.fits')]
+        return fits_files
+
+    # If the input is not a directory, check if it's a compressed file
+    elif os.path.isfile(input_path):
+        file_dir = os.path.dirname(input_path)
+        extracted_folder_name = os.path.splitext(os.path.basename(input_path))[0]
+        extracted_folder_path = os.path.join(file_dir, extracted_folder_name)
+
+        # If it's a .zip file
+        if input_path.endswith('.zip'):
+            with zipfile.ZipFile(input_path, 'r') as zip_ref:
+                zip_ref.extractall(extracted_folder_path)
+
+        # If it's a .tar, .tar.gz, or .tar.bz2 file
+        elif input_path.endswith(('.tar', '.tar.gz', '.tar.bz2')):
+            with tarfile.open(input_path, 'r') as tar_ref:
+                tar_ref.extractall(extracted_folder_path)
+        else:
+            raise ValueError("Unsupported file format. Please provide a directory or a supported compressed file (.zip, .tar, .tar.gz, .tar.bz2).")
+
+        # After extracting, return the list of .fits files in the extracted folder
+        fits_files = []
+        for root, dirs, files in os.walk(extracted_folder_path):
+            for file in files:
+                if file.endswith('.fits'):
+                    fits_files.append(os.path.join(root, file))
+        return fits_files
+
+    else:
+        raise ValueError("Input path is neither a directory nor a supported compressed file.")
+
+def is_valid_fits_file(filepath):
+    try:
+        with fits.open(filepath) as hdul:
+            # If the file opens successfully, it's a FITS file
+            return True
+    except Exception:
+        # If there's an error opening the file, it's not a FITS file
+        return False
+
+def get_fixed_fov_mask(inp_file, inp_fov):
+    cmeta, ctb_data = ndfits.read(inp_file)
+    cur_fixed_mask = create_fov_mask(cmeta['refmap'], inp_fov)
+    return cur_fixed_mask
+
+

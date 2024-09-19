@@ -141,6 +141,7 @@ def create_params_map(save_file, map_file=None):
             copy_and_modify_group(template_group, spw_group, fdt_params)
         del f['TEMPLATE']
     print('results are saved to ', map_file)
+    return map_file
 
 def read_fitting_result(save_file, cmeta, tb_data, cinfo):
     with h5py.File(save_file, 'r') as f:
@@ -200,6 +201,31 @@ def read_group(group):
         elif isinstance(item, h5py.Group):
             content[key] = read_group(item)
     return content
+
+def create_idl_pro_file(path1, path2, file_list, output_pro_file):
+    """
+    Creates an IDL .pro file with the provided paths and file list.
+
+    Parameters:
+    path1 (str): The first file path to include in the .pro file.
+    path2 (str): The second file path to include in the .pro file.
+    file_list (str): The variable name or content to be used in the process_files call.
+    output_pro_file (str): The output .pro file name to write.
+    """
+    # Construct the content of the .pro file
+    content = f"""@{path1}
+    @{path2}
+    file_list = {file_list}
+    process_files, file_list
+    ;process_files, file_list, '/path/to/your_own_sav_file.sav'
+    end
+    """
+
+    # Write the content to the specified output .pro file
+    with open(output_pro_file, 'w') as file:
+        file.write(content)
+
+    print(f"{output_pro_file} has been created successfully.")
 
 
 def main():
