@@ -64,13 +64,17 @@ class pygsfit_cp_class:
         self.update_rms()
 
     def get_lib(self):
-        if platform.system() == 'Linux' or platform.system() == 'Darwin':
-            unix_dir = os.path.join(os.path.dirname(__file__), 'unix/')
-            libpath = os.path.join(unix_dir, 'fit_Spectrum_Kl.so')
+        if platform.system() == 'Linux':
+            linux_dir = os.path.join(os.path.dirname(__file__), 'linux/')
+            libpath = os.path.join(linux_dir, 'fit_Spectrum_Kl.so')
+        elif platform.system() == 'Darwin':
+            if platform.machine() == 'x86':
+                unix_dir = os.path.join(os.path.dirname(__file__), 'unix/x86/')
+                libpath = os.path.join(unix_dir, 'fit_Spectrum_Kl.so')
             if platform.machine() == 'arm64':
                 unix_dir = os.path.join(os.path.dirname(__file__), 'unix/arm64/')
                 libpath = os.path.join(unix_dir, 'fit_Spectrum_Kl.so')
-        if platform.system() == 'Windows':
+        elif platform.system() == 'Windows':
             libpath = os.path.join(os.path.dirname(__file__), 'win/gs_fit_1D.dll')
 
         if not os.path.exists(libpath):
