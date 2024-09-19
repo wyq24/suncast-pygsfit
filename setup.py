@@ -30,7 +30,7 @@ with open("README.md", "r") as fh:
 
 setup(
     name='pygsfit_cp',  #
-    version='0.1.2',  #
+    version='0.1.3',  #
     description='A python wrpper of the core fitting functionalities of gsFit.',
     long_description=long_description,
     long_description_content_type="text/markdown",
@@ -45,6 +45,7 @@ setup(
             'unix/x86/*.so',
             'win/*.dll',
             'demo/*.fits',
+            'demo/*.py',
             'demo/*.ipynb',
             'docs/*.txt',
         ],
