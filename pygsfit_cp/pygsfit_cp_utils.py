@@ -3,11 +3,10 @@ import numpy as np
 from astropy.coordinates import SkyCoord
 import h5py
 import os
-import os
 import zipfile
 import tarfile
 from astropy.io import fits
-import ndfits
+from pygsfit_cp import ndfits
 
 def extent_convertor(cheader):
     # Replace direct assignments with lookups
@@ -160,8 +159,6 @@ def makelist(tdir='', keyword1='', keyword2='', exclude=None):
 
     return li
 
-
-import shutil
 
 def process_input_path(input_path):
     """

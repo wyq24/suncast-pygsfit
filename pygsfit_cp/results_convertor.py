@@ -3,12 +3,11 @@
 
 from scipy.io import readsav
 import h5py
-import ndfits
+from pygsfit_cp import ndfits
 from datetime import datetime
 import numpy as np
 import os
-from pygsfit_cp_utils import sfu2tb_2d
-from astropy import constants as const, units as u
+
 
 def read_sample():
     demo_sav = '/Users/walterwei/ssw/packages/gsfit/demo/demo_eovsa_gsfitmaps.sav'

@@ -1,7 +1,6 @@
 import copy
 import ctypes
 import os
-import pickle
 import platform
 import subprocess
 
@@ -16,14 +15,15 @@ import json
 
 
 
-import pygsfit_cp_utils as ut
-import ndfits
+import pygsfit_cp.pygsfit_cp_utils as ut
+from pygsfit_cp import ndfits
 import h5py
 
 
 class pygsfit_cp:
     def __init__(self, filename=None, out_dir=None, fit_fov=None):
-        self.filename = filename if filename is not None else os.path.join(os.path.dirname(__file__), 'demo/eovsa_allbd_demo_0.fits')
+        self.filename = filename if filename is not None else os.path.join(os.path.dirname(__file__),
+                                                                           'demo/eovsa_allbd_demo_0.fits')
         #self.filename = filename
         self.out_dir = out_dir if out_dir else os.path.join(os.path.expanduser('~'), 'pygsfit_cp_output')
         if not os.path.exists(self.out_dir):
@@ -329,11 +329,11 @@ class pygsfit_cp:
         with open(pyfile_path, 'w') as pyfile:
             #Write the imports
             code_block_import = """
-                from pygsfit_cp import *
+                from pygsfit_cp.pygsfit_cp import *
                 import os
                 import pkg_resources
-                from pygsfit_cp_utils import *
-                import results_convertor as rc
+                from pygsfit_cp.pygsfit_cp_utils import *
+                import pygsfit_cp.results_convertor as rc
             """
             indented_source = '\n'.join(line.lstrip() for line in code_block_import.splitlines())
             pyfile.write(indented_source + '\n\n')
