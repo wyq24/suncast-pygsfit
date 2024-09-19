@@ -30,13 +30,25 @@ with open("README.md", "r") as fh:
 
 setup(
     name='pygsfit_cp',  #
-    version='0.1.0',  #
+    version='0.1.2',  #
     description='A python wrpper of the core fitting functionalities of gsFit.',
     long_description=long_description,
     long_description_content_type="text/markdown",
     author='Yuqian Wei',
     author_email='yw633@njit.edu',
     packages=find_packages(),
+    include_package_data=True,
+    package_data={
+        'pygsfit_cp': [
+            'IDL_utils/*.pro',
+            'unix/arm64/*.so',
+            'unix/x86/*.so',
+            'win/*.dll',
+            'demo/*.fits',
+            'demo/*.ipynb',
+            'docs/*.txt',
+        ],
+    },
     classifiers=[
         'Programming Language :: Python :: 3',
         'License :: OSI Approved :: MIT License',

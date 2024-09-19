@@ -15,12 +15,12 @@ import json
 
 
 
-import pygsfit_cp.pygsfit_cp_utils as ut
+from pygsfit_cp import pygsfit_cp_utils as ut
 from pygsfit_cp import ndfits
 import h5py
 
 
-class pygsfit_cp:
+class pygsfit_cp_class:
     def __init__(self, filename=None, out_dir=None, fit_fov=None):
         self.filename = filename if filename is not None else os.path.join(os.path.dirname(__file__),
                                                                            'demo/eovsa_allbd_demo_0.fits')
@@ -302,8 +302,12 @@ class pygsfit_cp:
         Calling convention of each inp arr
         :param inp_name:only 'ninput', 'rinput', and 'initial_parguess' are supported
         """
-        file_paths = {'ninput': './docs/Long_input.txt', 'rinput': './docs/Real_input.txt',
-                      'initial_parguess': './docs/Parms_input.txt'}
+        docs_dir = os.path.join(os.path.dirname(__file__), 'docs/')
+        long_path = os.path.join(docs_dir, 'Long_input.txt')
+        real_path = os.path.join(docs_dir, 'Real_input.txt')
+        parm_path = os.path.join(docs_dir, 'Parms_input.txt')
+        file_paths = {'ninput': long_path, 'rinput': real_path,
+                      'initial_parguess': parm_path}
         with open(file_paths[inp_name], 'r') as file:
             content = file.read()
             print("=============")
@@ -329,7 +333,7 @@ class pygsfit_cp:
         with open(pyfile_path, 'w') as pyfile:
             #Write the imports
             code_block_import = """
-                from pygsfit_cp.pygsfit_cp import *
+                from pygsfit_cp.pygsfit_cp_src import *
                 import os
                 import pkg_resources
                 from pygsfit_cp.pygsfit_cp_utils import *
