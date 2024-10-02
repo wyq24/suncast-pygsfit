@@ -66,7 +66,7 @@ def recreate_lmfit_parameters(structured_array):
     return params
 
 # Example usage
-filename = '/Volumes/Media_1t/work/20220511/eovsa_fitting_bh/slf_final_XX_t28_allbd_fit_res.fits'
+filename = '/Volumes/Media_1t/work/20220511/eovsa_fitting/narrow/slf_final_XX_t38_allbd_bkp/slf_final_XX_t38_allbd_fit_res.fits'
 data_objects = read_combined_fits_file(filename)
 
 # Accessing attributes of the first object for demonstration

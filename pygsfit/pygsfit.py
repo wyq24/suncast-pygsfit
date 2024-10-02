@@ -739,7 +739,7 @@ class App(QMainWindow):
         # Group 2: Fit Method
         self.fit_method_box = QHBoxLayout()
         self.fit_method_selector_widget = QComboBox()
-        self.fit_method_selector_widget.addItems(["nelder", "basinhopping", "differential_evolution", "mcmc", "Dr.Fleishman"])
+        self.fit_method_selector_widget.addItems(["nelder", "basinhopping", "differential_evolution", "mcmc", "Fleishman"])
         self.fit_method_selector_widget.currentIndexChanged.connect(self.fit_method_selector)
         self.fit_method_box.addWidget(QLabel("Fit Method"))
         self.fit_method_box.addWidget(self.fit_method_selector_widget)
@@ -869,6 +869,16 @@ class App(QMainWindow):
                                     self.meta['ny'] * self.dy]
             self.mapx, self.mapy = np.linspace(self.x0, self.x1, meta['nx']), np.linspace(self.y0, self.y1, meta['ny'])
             self.tp_cal_factor = np.ones_like(self.cfreqs)
+            self.tp_cal_factor = np.array([0.79348543, 0.73590569, 0.77043764, 0.88938196, 0.92463635,
+       0.93260632, 0.95657094, 0.99009901, 0.98495543, 0.90825406,
+       1.09157371, 1.09355798, 1.12237417, 1.11382516, 1.12874905,
+       1.13748819, 1.13393249, 1.18174961, 1.24530376, 1.22788188,
+       1.30646466, 1.37205013, 1.40447417, 1.3382169 , 1.34913838,
+       1.38952156, 1.35252539, 1.3359842 , 1.35563557, 1.35675904,
+       1.1134746 , 1.02580045, 1.11001961, 1.27738334, 1.19679582,
+       1.22670118, 0.99580251, 0.72279365, 0.54225129, 0.59278818,
+       0.92447833, 0.80641102, 0.67613515, 0.70044481, 0.64387755,
+       0.52238087, 0.5852915 , 0.54179257, 0.55961721, 0.5777587 ])
 
             self.has_eovsamap = True
             with fits.open(self.eoimg_fname, mode='readonly') as wcs_hdul:
@@ -2117,7 +2127,7 @@ class App(QMainWindow):
         self.fit_method = self.fit_method_selector_widget.currentText()
         self.init_fit_kws()
         self.update_fit_kws_widgets()
-        if self.fit_method == 'Dr.Fleishman':
+        if self.fit_method == 'Fleishman':
             self.fit_Spectrum_Kl_call_preset()
 
     def ele_function_selector(self):
@@ -2410,7 +2420,7 @@ class App(QMainWindow):
                 self.speccanvas.removeItem(self.spec_fitplot)
         if self.fit_function != gstools.GSCostFunctions.SinglePowerLawMinimizerOneSrc:
             print("Not yet implemented")
-        elif self.fit_method == 'Dr.Fleishman':
+        elif self.fit_method == 'Fleishman':
             #using Dr.Fleishman's code which combine the minimization
             exported_fittig_info = []
             self.fit_Spectrum_Kl_input_converter()
