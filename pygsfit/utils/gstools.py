@@ -9,19 +9,26 @@ import warnings
 from PyQt5.QtCore import QThread, pyqtSignal, QRunnable,QObject
 warnings.simplefilter("default")
 
-def initGET_MW(libname):
+def initGET_MW(libname, load_GRFF = False):
     """
     Python wrapper for fast gyrosynchrotron codes.
     Identical to GScodes.py in https://github.com/kuznetsov-radio/gyrosynchrotron
     This is for the single thread version
     @param libname: path for locating compiled shared library
     @return: An executable for calling the GS codes in single thread
+
+    The pyGET_MW in GRFF that calculate gyroresonance and free-free emission : https://github.com/kuznetsov-radio/GRFF
+    has the same calling manner. So, this function can be used to call the function as well when GRFF lib is provided.
+    For the single thread version
     """
     _intp = ndpointer(dtype=ctypes.c_int32, flags='F')
     _doublep = ndpointer(dtype=ctypes.c_double, flags='F')
 
     libc_mw = ctypes.CDLL(libname)
-    mwfunc = libc_mw.pyGET_MW
+    if not load_GRFF:
+        mwfunc = libc_mw.pyGET_MW
+    else:
+        mwfunc = libc_mw.PyGET_MW
     mwfunc.argtypes = [_intp, _doublep, _doublep, _doublep, _doublep, _doublep, _doublep]
     mwfunc.restype = ctypes.c_int
 
@@ -293,6 +300,194 @@ class GSCostFunctions:
             # Return scaled residual
             return (mflux - spec) / spec_err
 
+    def GRFFMinimizerOneSrc(fit_params, freqghz, spec=None, spec_err=None,
+                                      spec_in_tb=True, pgplot_widget=None, show_plot=False, debug=False, verbose=False):
+        """
+        # emission mechanism flag (1: gyroresonance is off; 2: free-free is off;
+        # 4: contribution of neutrals is off;  8: even if DEM and/or DDM are present, the free-free and
+        # gyroresonance emissions are computed using the isothermal approximation with the electron concentration
+        params: parameters defined by lmfit.Paramters()
+        freqghz: frequencies in GHz
+        spec: input spectrum, can be brightness temperature in K, or flux density in sfu
+        spec_err: uncertainties of spectrum in K or sfu
+        spec_in_tb: if True, input is brightness temperature in K, otherwise is flux density in sfu
+        calc_flux: Default (False) is to return brightness temperature.
+                    True if return the calculated flux density. Note one needs to provide src_area/src_size for this
+                        option. Otherwise assumes src_size = 2 arcsec (typical EOVSA pixel size).
+        @rtype: 1. If no tb/tb_err or flux/flux_err is provided, return the calculated
+                    brightness temperature or flux for each input frequency.
+                2. If tb/tb_err or flux/flux_err are provided, return the
+                    (scaled) residual for each input frequency
+        """
+
+        if platform.system() == 'Linux' or platform.system() == 'Darwin':
+            cur_lib_flie = '../binaries/GRFF_DEM_Transfer.so'
+            if platform.machine() == 'arm64':
+                cur_lib_flie = '../binaries/GRFF_DEM_Transfer_mac_arm64.so'
+            libname = os.path.join(os.path.dirname(os.path.realpath(__file__)),
+                                   cur_lib_flie)
+        if platform.system() == 'Windows': ##TODO: not yet tested on Windows platform
+            libname = os.path.join(os.path.dirname(os.path.realpath(__file__)),
+                                   '../binaries/GRFF_DEM_Transfer_64.dll')
+        GET_MW = initGET_MW(libname, load_GRFF=True)  # load the library
+
+        asec2cm = 0.725e8
+        if 'area_asec2' in fit_params.keys():
+            src_area = float(fit_params['area_asec2'].value)  # source area in arcsec^2
+        else:
+            src_area = 4.  # arcsec^2. default area for bright temperature spectral fitting. Will be divided out.
+            if not spec_in_tb:
+                print('=======Warning: no source area is provided for flux density calculation. '
+                      'Use area = 4 arcsec^2 as the place default (1 EOVSA pixel).======')
+        EmissionMechanism = 1 #ff only, if B is defined, change to 0 (ff+gr)
+        Bmag = 0 # pure free free
+        src_area_cm2 = src_area * asec2cm ** 2.  # source area in cm^2
+        depth_cm = float(fit_params['depth_asec'].value) * asec2cm  # total source depth in cm
+        if 'Bx100G' in fit_params: 
+            Bmag = float(fit_params['Bx100G'].value) * 100.  # magnetic field strength in G
+            EmissionMechanism = 0
+        Tth = float(fit_params['T_MK'].value) * 1e6  # thermal temperature in K
+        nth = 10. ** float(fit_params['log_nth'].value)  # thermal density
+        theta = float(fit_params['theta'].value)  # viewing angle in degrees
+        #EmiMech_lkuptab = {'thermal f-f + gyrores':0, 'thermal f-f ':1}
+        #EmissionMechanism = EmiMech_lkuptab[ele_dist]
+        if debug:
+            # debug against previous codes
+            print('depth, Bmag, Tth, nth/1e10, lognrl, delta, theta, Emin, Emax: '
+                  '{0:.1f}, {1:.1f}, {2:.1f}, {3:.1f},'
+                  '{6:.1f}'.format(depth_cm / 0.725e8, Bmag, Tth / 1e6, nth / 1e10, theta))
+        # E_hi = 0.1
+        # nrl = nrlh * (Emin ** (1. - delta) - Emax * (1. - delta)) / (E_hi ** (1. - delta) - Emax ** (1. - delta))
+
+        Nf = 100  # number of frequencies
+        #assume voxel with the same depth of dx and dy
+        NSteps = np.round(depth_cm/(0.725e8*2)).astype(int) # number of pixel along z axis
+        #NSteps = 1  # number of nodes along the line-of-sight
+
+        Lparms = np.zeros(5, dtype='int32')  # array of dimensions etc.
+        Lparms[0] = NSteps
+        Lparms[1] = Nf
+        Lparms[2] = 0 #number of temperatures in the T_arr array; must be ≥ 2 – otherwise DEM/DEM are ignored;
+        Lparms[3] = 1 # DEM_key – global DEM on/off key. (1 is off while 0 is on)
+        Lparms[4] = 1 # DDM_key – global DDM on/off key. (1 is off while 0 is on)
+        #Lparms[5] = len(fzeta_arr)
+        #Lparms[6] = len(Tzeta_arr)
+        #Lparms[7] = 1
+
+        Rparms = np.zeros(3, dtype='double')  # array of global floating-point parameters
+        Rparms[0] = src_area_cm2  # Area, cm^2
+        Rparms[1] = 0.8e9  # starting frequency to calculate spectrum, Hz
+        Rparms[2] = 0.02  # logarithmic step in frequency
+
+        ParmLocal = np.zeros(15, dtype='double')  # array of voxel parameters - for a single voxel
+        ParmLocal[0] = depth_cm / NSteps  # voxel depth, cm
+        ParmLocal[1] = Tth  # T_0, K
+        ParmLocal[2] = nth  # n_0 - thermal electron density, cm^{-3}
+        ParmLocal[3] = Bmag  # B - magnetic field, G
+
+        ParmLocal[4] = theta  # viewing angle, degrees
+        ParmLocal[5] = 0  # azimuthal angle, degrees
+        ParmLocal[6] = EmissionMechanism  # emission mechanism flag (1: gyroresonance is off; 2: free-free is off;
+        # 4: contribution of neutrals is off;  8: even if DEM and/or DDM are present, the free-free and
+        # gyroresonance emissions are computed using the isothermal approximation with the electron concentration
+        # and temperature derived from the DDM or DEM (from the DDM, if both are specified).)
+        ParmLocal[7] = 30  # maximum harmonic number
+        ParmLocal[8] = 0  # proton concentration, cm^{-3} (not used in this example)
+        ParmLocal[9] = 0  # neutral hydrogen concentration, cm^{-3}
+        ParmLocal[10] = 0  # neutral helium concentration, cm^{-3}
+        ParmLocal[11] = 1  # local DEM on/off key (off)
+        ParmLocal[12] = 1  # local DDM on/off key (off)
+        ParmLocal[13] = 0  # element abundance code (coronal, following Feldman 1992)
+        ParmLocal[14] = 0  # reserved
+
+
+        Parms = np.zeros((15, NSteps), dtype='double', order='F')  # 2D array of input parameters - for multiple voxels
+        for i in range(NSteps):
+            Parms[:, i] = ParmLocal
+            Parms[0, i] = ParmLocal[0] / NSteps
+            Parms[3, i] *= 1.0 - 1 * i / (NSteps - 1) #only the farest voxel has associated magnetic field
+
+        RL = np.zeros((7, Nf), dtype='double', order='F')  # input/output array
+        dummy = np.array(0, dtype='double')
+
+        # calculating the emission for array distribution (array -> on)
+        res = GET_MW(Lparms, Rparms, Parms, dummy, dummy, dummy, RL)
+        if True:
+            # retrieving the results
+            f = RL[0]
+            I_L = RL[5]
+            I_R = RL[6]
+            all_zeros = not RL.any()
+            if not all_zeros:
+                flux_model = I_L + I_R
+                flux_model = np.nan_to_num(flux_model) + 1e-11
+                logf = np.log10(f)
+                logflux_model = np.log10(flux_model)
+                logfreqghz = np.log10(freqghz)
+                interpfunc = interpolate.interp1d(logf, logflux_model, kind='linear')
+                logmflux = interpfunc(logfreqghz)
+                mflux = 10. ** logmflux
+                mtb = sfu2tb(np.array(freqghz) * 1.e9, mflux, area=src_area).value
+
+                if pgplot_widget:
+                    ##todo: figure out a way to update the main widget
+                    import pyqtgraph as pg
+                    all_items = pgplot_widget.getPlotItem().listDataItems()
+                    if len(all_items) > 0:
+                        pgplot_widget.removeItem(all_items[-1])
+                    spec_fitplot = pgplot_widget.plot(x=np.log10(freqghz), y=np.log10(mtb),
+                                                             pen=dict(color=pg.mkColor(0), width=3),
+                                                             symbol=None, symbolBrush=None)
+                    pgplot_widget.addItem(spec_fitplot)
+
+                if show_plot:
+                    import matplotlib.pyplot as plt
+                    fig, (ax1, ax2) = plt.subplots(1, 2)
+                    ax1.plot(freqghz, mflux, 'k')
+                    #ax1.set_xlim([1, 20])
+                    ax1.set_xlabel('Frequency (GHz)')
+                    ax1.set_ylabel('Flux (sfu)')
+                    ax1.set_title('Flux Spectrum')
+                    ax1.set_xscale('log')
+                    ax1.set_yscale('log')
+                    ax2.plot(freqghz, mtb, 'k')
+                    #ax2.set_xlim([1, 20])
+                    ax2.set_xlabel('Frequency (GHz)')
+                    ax2.set_ylabel('Brightness Temperature (K)')
+                    ax2.set_title('Brightness Temperature Spectrum')
+                    ax2.set_xscale('log')
+                    ax2.set_yscale('log')
+                    ax2.legend()
+                    plt.show()
+            else:
+                print("Calculation error! Assign an unrealistically huge number")
+                mflux = np.ones_like(freqghz) * 1e4
+                mtb = sfu2tb(np.array(freqghz) * 1.e9, mflux, area=src_area).value
+        else:
+            print("Calculation error! Assign an unrealistically huge number")
+            mflux = np.ones_like(freqghz) * 1e9
+            mtb = sfu2tb(np.array(freqghz) * 1.e9, mflux, area=src_area).value
+
+        # Return values
+        if spec_in_tb:
+            if spec is None:
+                # nothing is provided, return the model spectrum
+                return mtb
+            if spec_err is None:
+                # no uncertainty provided, return absolute residual
+                return mtb - spec
+            # Return scaled residual
+            return (mtb - spec) / spec_err
+        else:
+            if spec is None:
+                # nothing is provided, return the model spectrum
+                return mflux
+            if spec_err is None:
+                # no uncertainty provided, return absolute residual
+                return mflux - spec
+            # Return scaled residual
+            return (mflux - spec) / spec_err
+
 class FitThread(QThread):
     finished = pyqtSignal(object)
     def __init__(self, main_window, roi_index):
@@ -403,7 +598,7 @@ def pyWrapper_Fit_Spectrum_Kl(ninput, rinput, parguess, freq, spec_in):
     res = mwfunc(ctypes.c_longlong(8), argv)
     return (spec_out, aparms, eparms)
 
-class fakeMiniResClass:
+class dummyMiniResClass:
     #pretent to be lmfit.minimizerResult for 'Dr.Fleishman' method
     def __init__(self, params):
         self.params = params

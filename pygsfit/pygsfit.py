@@ -29,6 +29,9 @@ import tempfile
 import glob
 from scipy.interpolate import interp1d
 import pickle
+from utils import gstools
+from utils.img_utils import cornor_plot
+
 # import re
 # import time
 # from astropy.coordinates import SkyCoord
@@ -39,7 +42,7 @@ import pickle
 filedir = os.path.dirname(os.path.realpath(__file__))
 print(filedir)
 sys.path.append(filedir)
-from utils import gstools, roiutils, ndfits
+from utils import gstools_ori, roiutils, ndfits
 from utils.roiutils import PolyLineROIX, Grid_Dialog
 import warnings
 
@@ -2161,22 +2164,17 @@ class App(QMainWindow):
             self.fit_params.add_many(('theta', 45., True, 0.01, 89.9, None, None),
                                      ('log_nth', 10, True, 4., 13., None, None),
                                      ('T_MK', 1., False, 0.1, 100, None, None),
-                                     ('depth_asec', 5., False, 1., 100., None, None),
-                                     ('area_asec2', 25., False, 1., 10000., None, None))
+                                     ('depth_asec', 5., False, 1., 100., None, None))
             self.fit_params_nvarys = 0
             for key, par in self.fit_params.items():
                 if par.vary:
                     self.fit_params_nvarys += 1
-
+            self.fit_function = gstools.GSCostFunctions.GRFFMinimizerOneSrc
             self.update_fit_param_widgets()
 
         if self.ele_dist == 'thermal f-f + gyrores':
             self.fit_params = lmfit.Parameters()
             self.fit_params.add_many(('Bx100G', 2., True, 0.1, 100., None, None),
-                                     ('log_nnth', 5., False, 3., 11, None, None),
-                                     ('delta', 4., False, 1., 30., None, None),
-                                     ('Emin_keV', 10., False, 1., 100., None, None),
-                                     ('Emax_MeV', 10., False, 0.05, 100., None, None),
                                      ('theta', 45., True, 0.01, 89.9, None, None),
                                      ('log_nth', 10, True, 4., 13., None, None),
                                      ('T_MK', 1., True, 0.1, 100, None, None),
@@ -2186,7 +2184,7 @@ class App(QMainWindow):
                 if par.vary:
                     self.fit_params_nvarys += 1
 
-            self.fit_function = gstools.GSCostFunctions.Ff_Gyroresonance_MinimizerOneSrc
+            self.fit_function = gstools.GSCostFunctions.GRFFMinimizerOneSrc
             self.update_fit_param_widgets()
 
     def init_fit_kws(self):
@@ -2418,15 +2416,13 @@ class App(QMainWindow):
         if self.update_gui:
             if hasattr(self, 'spec_fitplot'):
                 self.speccanvas.removeItem(self.spec_fitplot)
-        if self.fit_function != gstools.GSCostFunctions.SinglePowerLawMinimizerOneSrc:
-            print("Not yet implemented")
-        elif self.fit_method == 'Fleishman':
+        if self.fit_method == 'Fleishman':
             #using Dr.Fleishman's code which combine the minimization
             exported_fittig_info = []
             self.fit_Spectrum_Kl_input_converter()
             self.fit_Spectrum_Kl_output = gstools.pyWrapper_Fit_Spectrum_Kl(*self.fit_Spectrum_Kl_input)
             self.fit_Spectrum_Kl_output_converter()
-            mi = gstools.fakeMiniResClass(params=self.fit_params_res)
+            mi = gstools.dummyMiniResClass(params=self.fit_params_res)
             exported_fittig_info.append(mi)
             print('==========Fit Parameters Updated=======')
             if self.update_gui:
@@ -2715,6 +2711,9 @@ class App(QMainWindow):
                 [primary_hdu, file_path_hdu, observed_spectrum_hdu, error_hdu, obs_freq_hdu, model_freq_hdu, model_spectrum_hdu,
                  params_table_hdu])
             hdul.writeto(filename, overwrite=True)
+            cornor_plot(emcee_res=emcee_res, fitting_res_save=filename)
+
+
         # #just for testing
         # def read_fits_file(filename):
         #     with fits.open(filename) as hdul:
