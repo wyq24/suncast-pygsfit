@@ -133,7 +133,8 @@ def ff_emission(em, T=1.e7, Z=1., mu=1.e10):
 
 class GSCostFunctions:
     def SinglePowerLawMinimizerOneSrc(fit_params, freqghz, spec=None, spec_err=None,
-                                      spec_in_tb=True, pgplot_widget=None, show_plot=False, debug=False, verbose=False):
+                                      spec_in_tb=True, pgplot_widget=None, show_plot=False, debug=False,
+                                      elec_dist_index=None, verbose=False):
         """
         params: parameters defined by lmfit.Paramters()
         freqghz: frequencies in GHz
@@ -143,6 +144,7 @@ class GSCostFunctions:
         calc_flux: Default (False) is to return brightness temperature.
                     True if return the calculated flux density. Note one needs to provide src_area/src_size for this
                         option. Otherwise assumes src_size = 2 arcsec (typical EOVSA pixel size).
+        elec_dist_index: place holder at this moment.
         @rtype: 1. If no tb/tb_err or flux/flux_err is provided, return the calculated
                     brightness temperature or flux for each input frequency.
                 2. If tb/tb_err or flux/flux_err are provided, return the
@@ -158,6 +160,7 @@ class GSCostFunctions:
             libname = os.path.join(os.path.dirname(os.path.realpath(__file__)),
                                    '../binaries/MWTransferArr64.dll')
         GET_MW = initGET_MW(libname)  # load the library
+        #todo: double power law has not been deployed yet
 
         asec2cm = 0.725e8
         if 'area_asec2' in fit_params.keys():
@@ -301,7 +304,7 @@ class GSCostFunctions:
             return (mflux - spec) / spec_err
 
     def GRFFMinimizerOneSrc(fit_params, freqghz, spec=None, spec_err=None,
-                                      spec_in_tb=True, pgplot_widget=None, show_plot=False, debug=False, verbose=False):
+                                      spec_in_tb=True, pgplot_widget=None, show_plot=False, mechanism_index=0, debug=False, verbose=False):
         """
         # emission mechanism flag (1: gyroresonance is off; 2: free-free is off;
         # 4: contribution of neutrals is off;  8: even if DEM and/or DDM are present, the free-free and
@@ -339,13 +342,10 @@ class GSCostFunctions:
             if not spec_in_tb:
                 print('=======Warning: no source area is provided for flux density calculation. '
                       'Use area = 4 arcsec^2 as the place default (1 EOVSA pixel).======')
-        EmissionMechanism = 1 #ff only, if B is defined, change to 0 (ff+gr)
-        Bmag = 0 # pure free free
+
         src_area_cm2 = src_area * asec2cm ** 2.  # source area in cm^2
         depth_cm = float(fit_params['depth_asec'].value) * asec2cm  # total source depth in cm
-        if 'Bx100G' in fit_params: 
-            Bmag = float(fit_params['Bx100G'].value) * 100.  # magnetic field strength in G
-            EmissionMechanism = 0
+        Bmag = float(fit_params['Bx100G'].value) * 100.  # magnetic field strength in G
         Tth = float(fit_params['T_MK'].value) * 1e6  # thermal temperature in K
         nth = 10. ** float(fit_params['log_nth'].value)  # thermal density
         theta = float(fit_params['theta'].value)  # viewing angle in degrees
@@ -387,7 +387,7 @@ class GSCostFunctions:
 
         ParmLocal[4] = theta  # viewing angle, degrees
         ParmLocal[5] = 0  # azimuthal angle, degrees
-        ParmLocal[6] = EmissionMechanism  # emission mechanism flag (1: gyroresonance is off; 2: free-free is off;
+        ParmLocal[6] = mechanism_index  # emission mechanism flag (1: gyroresonance is off; 2: free-free is off;
         # 4: contribution of neutrals is off;  8: even if DEM and/or DDM are present, the free-free and
         # gyroresonance emissions are computed using the isothermal approximation with the electron concentration
         # and temperature derived from the DDM or DEM (from the DDM, if both are specified).)
