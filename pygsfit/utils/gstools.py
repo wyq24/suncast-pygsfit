@@ -402,10 +402,13 @@ class GSCostFunctions:
 
 
         Parms = np.zeros((15, NSteps), dtype='double', order='F')  # 2D array of input parameters - for multiple voxels
+        decay_ratio = 0.5 #todo: edit the ratio/decay function in GUI
         for i in range(NSteps):
             Parms[:, i] = ParmLocal
             Parms[0, i] = ParmLocal[0] / NSteps
-            Parms[3, i] *= 1.0 - 1 * i / (NSteps - 1) #only the farest voxel has associated magnetic field
+            current_decay = max(0, 1.0 - (i*decay_ratio))
+            Parms[3, i] = ParmLocal[3]*current_decay
+            Parms[2, i] = ParmLocal[2]*current_decay
 
         RL = np.zeros((7, Nf), dtype='double', order='F')  # input/output array
         dummy = np.array(0, dtype='double')
