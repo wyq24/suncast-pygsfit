@@ -2161,7 +2161,8 @@ class App(QMainWindow):
         if self.ele_dist == 'thermal f-f':
             ## todo: thermal free-free cost function to be added
             self.fit_params = lmfit.Parameters()
-            self.fit_params.add_many(('theta', 45., True, 0.01, 89.9, None, None),
+            self.fit_params.add_many(('Bx100G', 2., True, 0.1, 100., None, None),
+                                        ('theta', 45., True, 0.01, 89.9, None, None),
                                      ('log_nth', 10, True, 4., 13., None, None),
                                      ('T_MK', 1., False, 0.1, 100, None, None),
                                      ('depth_asec', 5., False, 1., 100., None, None))
@@ -2439,12 +2440,19 @@ class App(QMainWindow):
                                                      symbol=None, symbolBrush=None)
             self.speccanvas.addItem(self.spec_fitplot)
         else:
+            cur_fcn_kws = {'spec': spec_tofit, 'spec_err': spec_err_tofit,
+                       'spec_in_tb': self.spec_in_tb}
+            # todo: double power law has not been deployed yet
+            cost_func_list = ["powerlaw", "double_Powerlaw", "thermal f-f + gyrores", "thermal f-f"]
+            arg_list = [{'elec_dist_index':3}, {'elec_dist_index':4}, {'mechanism_index':0}, {'mechanism_index':1}]
+            cost_arg_map = dict(zip(cost_func_list, arg_list))
+            additional_args = cost_arg_map.get(self.ele_dist)
+            cur_fcn_kws.update(additional_args)
             exported_fittig_info = []
             if self.fit_method != 'mcmc':
                 mini = lmfit.Minimizer(self.fit_function, self.fit_params,
                                        fcn_args=(freqghz_tofit,),
-                                       fcn_kws={'spec': spec_tofit, 'spec_err': spec_err_tofit,
-                                                'spec_in_tb': self.spec_in_tb},
+                                       fcn_kws=cur_fcn_kws,
                                        max_nfev=max_nfev, nan_policy='omit')
                 method = self.fit_method
                 mi = mini.minimize(method=method, **fit_kws)
@@ -2459,7 +2467,7 @@ class App(QMainWindow):
                         self.param_fit_value_widgets[n].setValue(self.fit_params_res[key].value)
 
                 freqghz_toplot = np.logspace(0, np.log10(20.), 100)
-                spec_fit_res = self.fit_function(mi.params, freqghz_toplot, spec_in_tb=self.spec_in_tb)
+                spec_fit_res = self.fit_function(mi.params, freqghz_toplot, spec_in_tb=self.spec_in_tb, **additional_args)
                 if self.update_gui:
                     self.spec_fitplot = self.speccanvas.plot(x=np.log10(freqghz_toplot), y=np.log10(spec_fit_res),
                                                          pen=dict(color=pg.mkColor(local_roi_idx), width=4),
@@ -2470,8 +2478,7 @@ class App(QMainWindow):
                 fit_kws_nelder = {'maxiter': 2000, 'tol': 0.01}
                 mini = lmfit.Minimizer(self.fit_function, self.fit_params,
                                        fcn_args=(freqghz_tofit,),
-                                       fcn_kws={'spec': spec_tofit, 'spec_err': spec_err_tofit,
-                                                'spec_in_tb': self.spec_in_tb},
+                                       fcn_kws=cur_fcn_kws,
                                        max_nfev=max_nfev, nan_policy='omit')
                 method = 'Nelder'
                 mi = mini.minimize(method=method, **fit_kws_nelder)
@@ -2504,8 +2511,7 @@ class App(QMainWindow):
 
                 mini = lmfit.Minimizer(self.fit_function, tmp_nelder_params,
                                        fcn_args=(freqghz_tofit,),
-                                       fcn_kws={'spec': spec_tofit, 'spec_err': spec_err_tofit,
-                                                'spec_in_tb': self.spec_in_tb},
+                                       fcn_kws=cur_fcn_kws,
                                        max_nfev=max_nfev, nan_policy='omit')
                 method = 'Nelder'
                 mi = mini.minimize(method=method, **fit_kws_nelder)
@@ -2527,7 +2533,7 @@ class App(QMainWindow):
                             pass
                 freqghz_toplot = np.logspace(0, np.log10(20.), 100)
                 med_params = copy.deepcopy(mi.params)
-                med_spec_fit_res = self.fit_function(mi.params, freqghz_toplot, spec_in_tb=self.spec_in_tb)
+                med_spec_fit_res = self.fit_function(mi.params, freqghz_toplot, spec_in_tb=self.spec_in_tb,**additional_args)
                 if self.update_gui:
                     for i in range(burn, shape, thin):
                         for n, key in enumerate(self.fit_params_res):
@@ -2535,7 +2541,7 @@ class App(QMainWindow):
                                 mi.params[key].value = chain[key][i]
                             except KeyError:
                                 pass
-                        spec_fit_res = self.fit_function(mi.params, freqghz_toplot, spec_in_tb=self.spec_in_tb)
+                        spec_fit_res = self.fit_function(mi.params, freqghz_toplot, spec_in_tb=self.spec_in_tb, **additional_args)
                         self.spec_fitplot = self.speccanvas.plot(x=np.log10(freqghz_toplot), y=np.log10(spec_fit_res),
                                                                  pen=dict(color=pg.mkColor(local_roi_idx), width=0.5),
                                                                  symbol=None, symbolBrush=None)
@@ -2729,6 +2735,7 @@ class App(QMainWindow):
         # read_fits_file(filename) # for testing
 
     def update_gui_after_fitting(self):
+        #  this function is currently not in used
         ##todo: update GUI after spectral fitting to make paralell mode work in the regular GUI mode
         #pass
         fitting_info = self.exported_fittig_info
