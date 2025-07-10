@@ -29,8 +29,7 @@ import tempfile
 import glob
 from scipy.interpolate import interp1d
 import pickle
-from utils import gstools
-from utils.img_utils import cornor_plot
+from .utils.img_utils import cornor_plot
 
 # import re
 # import time
@@ -42,8 +41,8 @@ from utils.img_utils import cornor_plot
 filedir = os.path.dirname(os.path.realpath(__file__))
 print(filedir)
 sys.path.append(filedir)
-from utils import gstools_ori, roiutils, ndfits
-from utils.roiutils import PolyLineROIX, Grid_Dialog
+from .utils import gstools, roiutils, ndfits
+from .utils.roiutils import PolyLineROIX, Grid_Dialog
 import warnings
 
 warnings.filterwarnings("ignore")
@@ -2699,6 +2698,7 @@ class App(QMainWindow):
             if emcee_res is not None:
                 self.emcee_save_file = filename.replace('.fits','emcee_res.p')
                 pickle.dump(emcee_res, open(self.emcee_save_file,'wb'),protocol=pickle.HIGHEST_PROTOCOL)
+                cornor_plot(emcee_res=emcee_res, fitting_res_save=filename)
             # path of the files are to long to be saved in the header, save them into a binary table
             file_dict = {'img_file': self.eoimg_fname, 'spec_file': self.eodspec_fname, 'emcee_save_file':self.emcee_save_file}
             fd_keys =   np.array(list(file_dict.keys()))
@@ -2717,7 +2717,6 @@ class App(QMainWindow):
                 [primary_hdu, file_path_hdu, observed_spectrum_hdu, error_hdu, obs_freq_hdu, model_freq_hdu, model_spectrum_hdu,
                  params_table_hdu])
             hdul.writeto(filename, overwrite=True)
-            cornor_plot(emcee_res=emcee_res, fitting_res_save=filename)
 
 
         # #just for testing
