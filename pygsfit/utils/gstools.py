@@ -208,7 +208,7 @@ class GSCostFunctions:
         ParmLocal[1] = Tth  # T_0, K
         ParmLocal[2] = nth  # n_0 - thermal electron density, cm^{-3}
         ParmLocal[3] = Bmag  # B - magnetic field, G
-        ParmLocal[6] = 3  # distribution over energy (PLW is chosen)
+        ParmLocal[6] = 3  # distribution over energy (PLW is chosen, 3)
         ParmLocal[7] = nrl  # n_b - nonthermal electron density, cm^{-3}
         ParmLocal[9] = Emin  # E_min, MeV
         ParmLocal[10] = Emax  # E_max, MeV
