@@ -28,9 +28,15 @@ from mpl_toolkits.axes_grid1 import make_axes_locatable
 from scipy.interpolate import interp1d
 from sunpy import map as smap
 from tqdm import *
+from matplotlib import dates as mdates
+from matplotlib.colors import LogNorm
 
-from utils.img_utils import cornor_plot
-from utils.img_utils import submap_of_file1, resize_array
+
+
+from pygsfit.utils.img_utils import cornor_plot
+from pygsfit.utils.img_utils import submap_of_file1, resize_array
+#from utils.img_utils import cornor_plot#
+#from utils.img_utils import submap_of_file1, resize_array
 
 filedir = os.path.dirname(os.path.realpath(__file__))
 print(filedir)
@@ -163,8 +169,8 @@ class App(QMainWindow):
         # ## quick input for debug --------------
         # self.eoimg_file_select()
         # ## quick input for debug --------------
-        # self.eoimg_fname = 'your testing file'
-        # self.eoimg_file_select_return()
+        # self.eoimg_fname = ['/Users/walterwei/Downloads/20220511/slf_final_XX_t19_allbd.fits']
+        # self.eoimg_files_seq_select_return()
 
     @staticmethod
     def _create_pgcmap(cmap='viridis', ncolorstop=6):
@@ -860,7 +866,6 @@ class App(QMainWindow):
             self.has_rois = False
 
         try:
-            # if True:
             meta, data = ndfits.read(self.eoimg_fname)
             if meta['naxis'] < 3:
                 print('Input fits file must have at least 3 dimensions. Abort..')
@@ -1177,15 +1182,13 @@ class App(QMainWindow):
         ax0.set_aspect('equal')
         self.qlookimg_canvas.draw()
 
-    def plot_dspec(self, cmap='viridis', vmin=None, vmax=None):
-        """
-        Plot dynamic spectrum with time and frequency axes.
 
-        Args:
-            cmap (str): Colormap for the spectrogram
-            vmin (float): Minimum value for color scale
-            vmax (float): Maximum value for color scale
+    def plot_dspec_ori(self, cmap='viridis', vmin=None, vmax=None):
         """
+        Plot dynamic spectrum with time and frequency axes and click interaction.
+        """
+        from matplotlib import dates as mdates
+        from mpl_toolkits.axes_grid1 import make_axes_locatable
 
         if not vmin:
             vmin = np.nanmin(self.dspec['dspec'])
@@ -1202,7 +1205,7 @@ class App(QMainWindow):
             vmax = np.percentile(spec.flatten(), 90)
         observatory = self.dspec['observatory']
         pol = self.dspec['pol']
-        ##todo: now I am only using the first polarization and first baseline
+
         if spec.ndim < 2:
             print('Dynamic spectrum needs at least 2 dimensions. We have {0:d} here.'.format(spec.ndim))
             return
@@ -1216,6 +1219,9 @@ class App(QMainWindow):
             print('Dynamic spectrum has more than 2 dimensions {0:d}. '
                   'I am only using the first polarization and first baseline'.format(spec.ndim))
             spec_plt = spec[0, 0]
+
+        # Clear the axes first
+        ax.clear()
 
         im_spec = ax.pcolormesh(tim_plt, fghz, spec_plt, cmap=cmap,
                                 vmin=vmin, vmax=vmax, rasterized=True)
@@ -1244,8 +1250,102 @@ class App(QMainWindow):
         self.qlookdspec_canvas.figure.subplots_adjust(left=0.1, right=0.85,
                                                       bottom=0.20, top=0.92,
                                                       hspace=0, wspace=0)
+
+        # Connect click handler for background subtraction if active
+        if hasattr(self, 'bkg_subtraction_active') and self.bkg_subtraction_active:
+            # Disconnect any existing handlers first
+            if hasattr(self, 'dspec_click_cid'):
+                self.qlookdspec_canvas.mpl_disconnect(self.dspec_click_cid)
+            self.dspec_click_cid = self.qlookdspec_canvas.mpl_connect('button_press_event',
+                                                                      self.dspec_time_click_handler)
+
         self.qlookdspec_canvas.draw()
-        self.plot_eoimgs_trange_on_dspec()
+
+        # Only call this if NOT in background subtraction mode
+        if not (hasattr(self, 'bkg_subtraction_active') and self.bkg_subtraction_active):
+            self.plot_eoimgs_trange_on_dspec()
+
+    def plot_dspec(self, cmap='viridis', vmin=None, vmax=None):
+        """Plot dynamic spectrum with time and frequency axes and click interaction."""
+        from matplotlib import dates as mdates
+        from mpl_toolkits.axes_grid1 import make_axes_locatable
+
+        # Clear the figure completely to avoid duplicate colorbars
+        self.qlookdspec_canvas.figure.clear()
+        self.qlookdspec_ax = self.qlookdspec_canvas.figure.subplots(1, 1)
+        ax = self.qlookdspec_ax
+
+        tim = self.dspec['time_axis']
+        tim_plt = self.dspec['time_axis'].plot_date
+        fghz = self.dspec['freq_axis']
+        spec = self.dspec['dspec']
+
+        if not vmin:
+            vmin = max(1.e-2,np.nanpercentile(spec.flatten(), 2))
+            #vmin = np.nanmin(spec)
+        if not vmax:
+            vmax = np.nanpercentile(spec.flatten(), 99)
+            #vmax = np.nanmax(spec)
+        observatory = self.dspec['observatory']
+        pol = self.dspec['pol']
+
+        if spec.ndim < 2:
+            print('Dynamic spectrum needs at least 2 dimensions. We have {0:d} here.'.format(spec.ndim))
+            return
+        elif spec.ndim == 2:
+            nfreq, ntim = len(fghz), len(tim_plt)
+            npol = 1
+            nbl = 1
+            spec_plt = spec
+        else:
+            (npol, nbl, nfreq, ntim) = spec.shape
+            print('Dynamic spectrum has more than 2 dimensions {0:d}. '
+                  'I am only using the first polarization and first baseline'.format(spec.ndim))
+            spec_plt = spec[0, 0]
+
+        im_spec = ax.pcolormesh(tim_plt, fghz, spec_plt, cmap=cmap,
+                                norm=LogNorm(vmin=vmin, vmax=vmax), rasterized=True)
+        ax.set_title("{0:s} Stokes {1:s} Spectrogram on {2:s}".format(observatory, pol, tim[0].iso[:10]), fontsize=10)
+        ax.xaxis_date()
+        ax.xaxis.set_major_formatter(mdates.DateFormatter("%H:%M"))
+        locator = mdates.AutoDateLocator()
+        ax.xaxis.set_major_locator(locator)
+        ax.set_xlim(tim_plt[0], tim_plt[-1])
+        ax.set_ylim(fghz[0], fghz[-1])
+        ax.set_xlabel('Time [UT]', fontsize=9)
+        ax.set_ylabel('Frequency [GHz]')
+        for xlabel in ax.get_xmajorticklabels():
+            xlabel.set_rotation(30)
+            xlabel.set_horizontalalignment("right")
+
+        # add vertical bar to indicate the time of the EOVSA image
+        if hasattr(self, 'eoimg_date'):
+            ax.plot([self.eoimg_date.plot_date] * 2, [1, 20], color='w', lw=1)
+
+        divider = make_axes_locatable(ax)
+        cax_spec = divider.append_axes('right', size='3.0%', pad=0.05)
+        cax_spec.tick_params(direction='out')
+        print(f"debug {vmin} and {vmax}")
+        clb_spec = plt.colorbar(im_spec, ax=ax, cax=cax_spec)
+        clb_spec.set_label('Flux [sfu]')
+        self.qlookdspec_canvas.figure.subplots_adjust(left=0.1, right=0.85,
+                                                      bottom=0.20, top=0.92,
+                                                      hspace=0, wspace=0)
+
+        # Connect click handler for background subtraction if active
+        if hasattr(self, 'bkg_subtraction_active') and self.bkg_subtraction_active:
+            # Disconnect any existing handlers first
+            if hasattr(self, 'dspec_click_cid'):
+                self.qlookdspec_canvas.mpl_disconnect(self.dspec_click_cid)
+            self.dspec_click_cid = self.qlookdspec_canvas.mpl_connect('button_press_event',
+                                                                      self.dspec_time_click_handler)
+
+        self.qlookdspec_canvas.draw()
+
+        # Only call this if NOT in background subtraction mode
+        #if not (hasattr(self, 'bkg_subtraction_active') and self.bkg_subtraction_active):
+        if self.has_eovsamap and self.has_dspec:
+            self.plot_eoimgs_trange_on_dspec()
 
     def plot_eoimgs_trange_on_dspec(self):
         """
@@ -1514,27 +1614,30 @@ class App(QMainWindow):
             self.qlookdspecbox.parent().setStretch(1, 0)
             self.qlookdspecbox.parent().setStretch(2, 0)
 
-    def interactive_dspec_background_subtraction(self):
-        """
-        Handle interactive background subtraction workflow for dynamic spectrum.
 
-        Manages time range selection, background calculation, and spectrum correction.
-        """
+    def interactive_dspec_background_subtraction(self):
+        """Handle interactive background subtraction workflow for dynamic spectrum."""
         if not hasattr(self, 'dspec') or not self.has_dspec:
             self.statusBar.showMessage('No dynamic spectrum loaded.')
             return
 
         # Initialize background subtraction state
         self.bkg_time_range = []
-        self.dspec_original = self.dspec['dspec'].copy()  # Keep original for reset
+        self.dspec_original = self.dspec['dspec'].copy()
         self.bkg_subtraction_active = True
 
-        # Enable click selection mode
-        self.dspec_bkg_ok_button.setEnabled(False)
-        self.dspec_bkg_status_label.setText("Click two points on time axis to select background range")
+        # Connect the click handler
+        if hasattr(self, 'qlookdspec_canvas'):
+            self.dspec_click_cid = self.qlookdspec_canvas.mpl_connect('button_press_event',
+                                                                      self.dspec_time_click_handler)
+
+        # Update GUI
+        if hasattr(self, 'dspec_bkg_ok_button'):
+            self.dspec_bkg_ok_button.setEnabled(False)
+            self.dspec_bkg_status_label.setText("Click two points on time axis to select background range")
         self.statusBar.showMessage('Select background time range by clicking on dynamic spectrum')
 
-    def dspec_time_click_handler(self, event):
+    def dspec_time_click_handler_ori(self, event):
         """
         Handle mouse clicks on dynamic spectrum for background time selection.
 
@@ -1549,6 +1652,25 @@ class App(QMainWindow):
 
         # Convert click position to time
         clicked_time = mdates.num2date(event.xdata)
+
+        #debug:
+        print(f"Click detected! Event: {event}")
+        print(f"In axes: {event.inaxes}")
+        print(f"Expected axes: {self.qlookdspec_ax}")
+
+        if not hasattr(self, 'bkg_subtraction_active'):
+            print("No bkg_subtraction_active attribute")
+            return
+
+        if not self.bkg_subtraction_active:
+            print("Background subtraction not active")
+            return
+
+        if event.inaxes != self.qlookdspec_ax:
+            print("Click not in correct axes")
+            return
+
+        print(f"Valid click at x={event.xdata}, y={event.ydata}")
 
         # Add to time range (max 2 points)
         if len(self.bkg_time_range) < 2:
@@ -1573,10 +1695,58 @@ class App(QMainWindow):
 
             self.qlookdspec_canvas.draw()
 
+    def dspec_time_click_handler(self, event):
+        """Handle mouse clicks on dynamic spectrum for background time selection."""
+
+        print(f"=== CLICK HANDLER CALLED ===")
+        print(f"Event.inaxes: {event.inaxes}")
+        print(f"Expected axes: {self.qlookdspec_ax}")
+        print(f"Are they the same object? {event.inaxes is self.qlookdspec_ax}")
+        print(f"Event x,y data: {event.xdata}, {event.ydata}")
+
+        if not hasattr(self, 'bkg_subtraction_active') or not self.bkg_subtraction_active:
+            print("EXITING: Background subtraction not active")
+            return
+
+        # More reliable axes check - use 'is' instead of '!=' or check if event.xdata is not None
+        if event.inaxes is None or event.xdata is None:
+            print("EXITING: Click not in a valid plot area")
+            return
+
+        # Alternative: You could also just remove this check entirely since we only connect
+        # the handler when background subtraction is active
+
+        print(f"PROCEEDING: Valid click at x={event.xdata}, y={event.ydata}")
+
+        # Convert click position to time
+        clicked_time = mdates.num2date(event.xdata)
+
+        # Add to time range (max 2 points)
+        if len(self.bkg_time_range) < 2:
+            self.bkg_time_range.append(event.xdata)
+            print(f"Added time point: {event.xdata}, total points: {len(self.bkg_time_range)}")
+
+            # Visual feedback - add vertical line
+            line = self.qlookdspec_ax.axvline(event.xdata, color='red', linestyle='--', alpha=0.7)
+            if not hasattr(self, 'bkg_selection_lines'):
+                self.bkg_selection_lines = []
+            self.bkg_selection_lines.append(line)
+
+            # Update status
+            if len(self.bkg_time_range) == 1:
+                self.dspec_bkg_status_label.setText(f"First point selected. Click second point.")
+            elif len(self.bkg_time_range) == 2:
+                # Sort time range
+                self.bkg_time_range.sort()
+                start_time = mdates.num2date(self.bkg_time_range[0]).strftime('%H:%M:%S')
+                end_time = mdates.num2date(self.bkg_time_range[1]).strftime('%H:%M:%S')
+                self.dspec_bkg_status_label.setText(f"Background range: {start_time} - {end_time}")
+                self.dspec_bkg_ok_button.setEnabled(True)
+
+            self.qlookdspec_canvas.draw()
+
     def apply_dspec_background_subtraction(self):
-        """
-        Calculate and apply background subtraction to dynamic spectrum.
-        """
+        """Calculate and apply background subtraction to dynamic spectrum."""
         if len(self.bkg_time_range) != 2:
             self.statusBar.showMessage('Please select background time range first.')
             return
@@ -1595,11 +1765,17 @@ class App(QMainWindow):
         # Apply background subtraction
         self.dspec['dspec'] = self.dspec_original - bkg_spectrum
 
-        # Update display
+        # Update display with 1%-99% percentile range
+        #new_vmin = np.nanpercentile(self.dspec['dspec'].flatten(), 2)
+        #new_vmax = np.nanpercentile(self.dspec['dspec'].flatten(), 98)
         self.plot_dspec()
 
         # Clean up selection state
         self.bkg_subtraction_active = False
+
+        if hasattr(self, 'dspec_click_cid'):
+            self.qlookdspec_canvas.mpl_disconnect(self.dspec_click_cid)
+
         self.clear_bkg_selection_lines()
         self.dspec_bkg_ok_button.setEnabled(False)
         self.dspec_bkg_reset_button.setEnabled(True)
@@ -1607,9 +1783,7 @@ class App(QMainWindow):
         self.statusBar.showMessage('Background subtraction applied to dynamic spectrum.')
 
     def reset_dspec_background_subtraction(self):
-        """
-        Reset dynamic spectrum to original state for re-selection.
-        """
+        """Reset dynamic spectrum to original state for re-selection."""
         if hasattr(self, 'dspec_original'):
             self.dspec['dspec'] = self.dspec_original.copy()
             self.plot_dspec()
@@ -1621,6 +1795,12 @@ class App(QMainWindow):
         self.dspec_bkg_reset_button.setEnabled(False)
         self.dspec_bkg_status_label.setText("Select new background range")
         self.bkg_subtraction_active = True
+
+        # Reconnect click handler for new selection
+        if hasattr(self, 'qlookdspec_canvas'):
+            self.dspec_click_cid = self.qlookdspec_canvas.mpl_connect('button_press_event',
+                                                                      self.dspec_time_click_handler)
+
         self.statusBar.showMessage('Dynamic spectrum reset. Select new background range.')
 
     def clear_bkg_selection_lines(self):
@@ -2435,15 +2615,30 @@ class App(QMainWindow):
         """
         self.spec_in_tb = False
         if hasattr(self, 'eoimg_date') and hasattr(self, 'dspec') and self.is_calibrated_tp:
+            # Check if background subtraction was applied
+            if not hasattr(self, 'dspec_original'):
+                self.statusBar.showMessage('Warning: Using raw spectrum. Consider background subtraction first.')
+
             # Get current ROI flux
             current_roi = self.rois[self.roi_group_idx][self.current_roi_idx]
             self.img_tot_flux = current_roi.total_flux
             self.img_tot_fghz = current_roi.freqghz
 
-            # Get total power spectrum at image time
+            # Get total power spectrum at image time (background-subtracted if available)
             t_idx = np.argmin(np.abs(self.dspec['time_axis'] - self.eoimg_date))
             self.tp_spec = self.dspec['dspec'][:, t_idx]
             self.tp_fghz = self.dspec['freq_axis']
+        #self.spec_in_tb = False
+        # if hasattr(self, 'eoimg_date') and hasattr(self, 'dspec') and self.is_calibrated_tp:
+        #     # Get current ROI flux
+        #     current_roi = self.rois[self.roi_group_idx][self.current_roi_idx]
+        #     self.img_tot_flux = current_roi.total_flux
+        #     self.img_tot_fghz = current_roi.freqghz
+        #
+        #     # Get total power spectrum at image time
+        #     t_idx = np.argmin(np.abs(self.dspec['time_axis'] - self.eoimg_date))
+        #     self.tp_spec = self.dspec['dspec'][:, t_idx]
+        #     self.tp_fghz = self.dspec['freq_axis']
 
             # Plot normalized spectrum
             if hasattr(self, 'tp_flux_plot'):
@@ -2469,34 +2664,33 @@ class App(QMainWindow):
             print('Either image time or calibrated total power dynamic spectrum does not exist.')
 
     def apply_tpcal_factor(self):
-        """
-        Apply or remove total power calibration correction to data.
-
-        If already checked, updates the factor. If unchecked, removes correction.
-        """
+        """Apply or remove total power calibration correction to data."""
         if not hasattr(self, 'tp_cal_factor'):
             self.statusBar.showMessage('No calibration factor available. Calculate factor first.')
             self.apply_tpcal_factor_button.setChecked(False)
             return
 
         if self.apply_tpcal_factor_button.isChecked():
-            # If already applied, remove old factor first, then apply new one
-            if hasattr(self, 'tpcal_factor_applied') and self.tpcal_factor_applied:
-                self.data[self.pol_select_idx, self.cur_frame_idx] *= self.tp_cal_factor[None, :, None, None]
-
-            # Apply new factor
-            self.statusBar.showMessage('Applying/updating total power correction factor.')
-            self.data[self.pol_select_idx, self.cur_frame_idx] /= self.tp_cal_factor[None, :, None, None]
-            self.tpcal_factor_applied = True
+            # Apply correction factor - MULTIPLY to scale up
+            if not (hasattr(self, 'tpcal_factor_applied') and self.tpcal_factor_applied):
+                self.statusBar.showMessage('Applying total power correction factor.')
+                self.data[self.pol_select_idx] *= self.tp_cal_factor[None, :, None, None]
+                self.tpcal_factor_applied = True
+            else:
+                self.statusBar.showMessage('Calibration factor already applied.')
         else:
-            # Remove correction
+            # Remove correction factor - DIVIDE to restore original
             if hasattr(self, 'tpcal_factor_applied') and self.tpcal_factor_applied:
                 self.statusBar.showMessage('Removing total power correction factor.')
-                self.data[self.pol_select_idx, self.cur_frame_idx] *= self.tp_cal_factor[None, :, None, None]
+                self.data[self.pol_select_idx] /= self.tp_cal_factor[None, :, None, None]
                 self.tpcal_factor_applied = False
+            else:
+                self.statusBar.showMessage('No calibration factor to remove.')
 
+        # Update displays
         self.plot_pg_eovsamap()
         self.calc_roi_spec(None)
+        self.update_pgspec()
 
     def is_calibrated_tp_state(self):
         """
@@ -3307,7 +3501,7 @@ class App(QMainWindow):
             if emcee_res is not None:
                 self.emcee_save_file = filename.replace('.fits', 'emcee_res.p')
                 pickle.dump(emcee_res, open(self.emcee_save_file, 'wb'), protocol=pickle.HIGHEST_PROTOCOL)
-                cornor_plot(emcee_res=emcee_res, fitting_res_save=filename)
+                #cornor_plot(emcee_res=emcee_res, fitting_res_save=filename)
             # path of the files are to long to be saved in the header, save them into a binary table
             file_dict = {'img_file': self.eoimg_fname, 'spec_file': self.eodspec_fname,
                          'emcee_save_file': self.emcee_save_file}
@@ -3328,6 +3522,9 @@ class App(QMainWindow):
                  model_spectrum_hdu,
                  params_table_hdu])
             hdul.writeto(filename, overwrite=True)
+            if emcee_res is not None:
+                self.emcee_save_file = filename.replace('.fits', 'emcee_res.p')
+                cornor_plot(emcee_res=emcee_res, fitting_res_save=filename)
 
         # #just for testing
         # def read_fits_file(filename):
