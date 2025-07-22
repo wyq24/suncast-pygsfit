@@ -1,0 +1,65 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pygsfit"
+version = "1.0.1"
+description = "Python GUI for spectral fitting of radio spectral imaging data"
+readme = "README.md"
+requires-python = ">=3.8"
+license = {text = "MIT"}
+authors = [
+    {name = "Bin Chen", email = "yw633@njit.edu"},
+    {name = "Sijie Yu"},
+    {name = "Yuqian Wei"},
+    {name = "Gelu Nita"},
+    {name = "Gregory Fleishman"},
+]
+keywords = ["astronomy", "spectral", "fitting", "gui", "solar", "radio"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering :: Astronomy",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+    "astropy",      # for units, constants, I/O, coordinates
+    "corner",       # for corner plots (\'import corner\')
+    "h5py",         # for HDF5 I/O
+    "lmfit",        # for model fitting
+    "matplotlib",   # for plotting
+    "numpy",        # core numeric routines
+    "pyqtgraph",    # fast GUI plots
+    "PyQt5",        # Qt bindings
+    "regions",      # for Regions/CRTFRegionParserError
+    "scipy",        # interpolation, ndimage, spatial, etc.
+    "shapely",      # geometry (LineString, box, Point)
+    "sunpy",        # solar data maps, time handling
+    "tqdm",         # progress bars
+    "emcee",         # emcee
+]
+#Homepage = "https://github.com/wyq24/pygsfit"
+#"Bug Reports" = "https://github.com/wyq24/pygsfit/issues"
+#"Source" = "https://github.com/wyq24/pygsfit"
+
+[project.scripts]
+pygsfit = "pygsfit.pygsfit:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["pygsfit*"]
+
+[tool.setuptools.package-data]
+pygsfit = [
+    "binaries/*.so",
+    "binaries/*.dll",
+    "resources/*.svg",
+]

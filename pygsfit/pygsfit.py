@@ -35,8 +35,7 @@ from matplotlib.colors import LogNorm
 
 from pygsfit.utils.img_utils import cornor_plot
 from pygsfit.utils.img_utils import submap_of_file1, resize_array
-#from utils.img_utils import cornor_plot#
-#from utils.img_utils import submap_of_file1, resize_array
+
 
 filedir = os.path.dirname(os.path.realpath(__file__))
 print(filedir)
@@ -4047,8 +4046,12 @@ class fileSeqDialog(QWidget):
         self.dialog_completed.emit(False, 0, 0)
         self.close()
 
-
-if __name__ == '__main__':
+def main():
     app = QApplication(sys.argv)
     ex = App()
     sys.exit(app.exec_())
+
+
+if __name__ == '__main__':
+    main()
+
