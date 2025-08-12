@@ -36,7 +36,6 @@ from matplotlib.colors import LogNorm
 from pygsfit.utils.img_utils import cornor_plot
 from pygsfit.utils.img_utils import submap_of_file1, resize_array
 
-
 filedir = os.path.dirname(os.path.realpath(__file__))
 print(filedir)
 sys.path.append(filedir)
@@ -1139,6 +1138,7 @@ class App(QMainWindow):
             else:
                 submap_aia = aiamap
             ax0 = self.update_axes_projection(ax0, projection=submap_aia)
+            ##todo: reproject eovsa to aia (bug)
             bounds = ax0.axis()
             submap_aia.plot(axes=ax0, cmap=aiacmap, clip_interval=(1, 99.99) * u.percent)
             ax0.set_title('')
