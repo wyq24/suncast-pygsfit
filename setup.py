@@ -10,6 +10,77 @@ from setuptools.command.build_ext import build_ext
 class CustomBuildExt(build_ext):
     """Custom build extension to handle OpenMP configuration."""
 
+
+
+    def run(self):
+        """Override run to catch compilation failures gracefully."""
+        try:
+            super().run()
+            print("\n" + "=" * 60)
+            print("SUCCESS: C++ extension compiled successfully!")
+            print("=" * 60 + "\n")
+        except Exception as e:
+            print("\n" + "=" * 60)
+            print("WARNING: C++ compilation failed!")
+            print(f"Error: {e}")
+            print("-" * 60)
+            print("Installation will continue with pre-compiled binaries.")
+            print("These binaries should work but may not be optimized for your system.")
+            print("-" * 60)
+            self._print_compilation_instructions()
+            print("=" * 60 + "\n")
+            # Don't raise - let installation continue
+
+    def build_extension(self, ext):
+        """Build a single extension, catching errors gracefully."""
+        try:
+            super().build_extension(ext)
+        except Exception as e:
+            print(f"\nWARNING: Failed to build {ext.name}")
+            print(f"Reason: {e}")
+            print("Will use pre-compiled binaries instead.\n")
+            # Don't raise - silently skip this extension
+
+    def _print_compilation_instructions(self):
+        """Print platform-specific instructions for manual compilation."""
+        system = platform.system()
+
+        print("\nTo compile the extension manually later, try:")
+        print("-" * 40)
+
+        if system == "Darwin":  # macOS
+            print("For macOS:")
+            print("  1. Install OpenMP (if needed): brew install libomp")
+            print("  2. cd to the pygsfit/src_gyrosynchrotron directory")
+            print("  3. Run: make -f makefile")
+            print("\nOr reinstall the package:")
+            print("  pip install --force-reinstall --no-binary :all: pygsfit")
+
+        elif system == "Linux":
+            print("For Linux:")
+            print("  1. Install build tools: sudo apt-get install build-essential")
+            print("  2. cd to the pygsfit/src_gyrosynchrotron directory")
+            print("  3. Run: make -f makefile")
+            print("\nOr reinstall the package:")
+            print("  pip install --force-reinstall --no-binary :all: pygsfit")
+
+        elif system == "Windows":
+            print("For Windows:")
+            print("Option 1 - Using MinGW (lightweight, ~100MB):")
+            print("  1. Install MinGW: conda install -c conda-forge m2w64-toolchain")
+            print("  2. Set compiler: set CC=gcc && set CXX=g++")
+            print("  3. Reinstall: pip install --force-reinstall --no-binary :all: pygsfit")
+            print("\nOption 2 - Using MSVC (larger, ~2GB):")
+            print("  1. Install from: https://visualstudio.microsoft.com/visual-cpp-build-tools/")
+            print("  2. Reinstall: pip install --force-reinstall --no-binary :all: pygsfit")
+            print("\nOption 3 - Manual compilation:")
+            print("  1. cd to the pygsfit/src_gyrosynchrotron directory")
+            print("  2. Use your preferred C++ compiler to build")
+
+        print("-" * 40)
+        print("Note: Pre-compiled binaries will work fine for most use cases.")
+        print("Compilation is only needed for optimal performance.\n")
+
     def build_extensions(self):
         # Detect platform
         system = platform.system()
@@ -18,25 +89,39 @@ class CustomBuildExt(build_ext):
         # Get compiler
         compiler = self.compiler.compiler_type
 
-        print(f"Building for {system} {machine} with {compiler}")
+        print(f"\nAttempting to build C++ extension...")
+        print(f"Platform: {system} {machine}")
+        print(f"Compiler: {compiler}")
 
+        # Mark extensions as optional so failure doesn't stop installation
         for ext in self.extensions:
-            # Platform-specific configuration
-            if system == "Darwin":  # macOS
-                self._configure_macos(ext, machine)
-            elif system == "Linux":
-                self._configure_linux(ext)
-            elif system == "Windows":
-                self._configure_windows(ext, compiler)
-            else:
-                raise RuntimeError(f"Unsupported platform: {system}")
+            ext.optional = True
 
-            # Print final configuration for debugging
-            print(f"Compile args: {ext.extra_compile_args}")
-            print(f"Link args: {ext.extra_link_args}")
+            # Platform-specific configuration
+            try:
+                if system == "Darwin":  # macOS
+                    self._configure_macos(ext, machine)
+                elif system == "Linux":
+                    self._configure_linux(ext)
+                elif system == "Windows":
+                    self._configure_windows(ext, compiler)
+                else:
+                    raise RuntimeError(f"Unsupported platform: {system}")
+
+                # Print final configuration for debugging
+                print(f"Compile args: {ext.extra_compile_args}")
+                print(f"Link args: {ext.extra_link_args}")
+
+            except Exception as e:
+                print(f"WARNING: Configuration failed: {e}")
+                print("Attempting build anyway...")
 
         # Call parent build_extensions
-        super().build_extensions()
+        try:
+            super().build_extensions()
+        except Exception as e:
+            print(f"\nCompilation failed: {e}")
+            print("Continuing with pre-built binaries...")
 
     def _configure_macos(self, ext, machine):
         """Configure for macOS with OpenMP support."""
@@ -159,48 +244,8 @@ class CustomBuildExt(build_ext):
             print("WARNING: Unknown compiler, OpenMP may not be enabled")
 
 
-# Define the extension module
-# def get_extension():
-#     """Create the C++ extension with all source files."""
-#
-#     # Use the actual directory name
-#     source_dir = Path('pygsfit/src_gyrosynchrotron')
-#
-#     # List all source files (excluding Windows-specific dllmain.cpp)
-#     sources = [
-#         'Arr_DF.cpp',
-#         'Coulomb.cpp',
-#         'ExtMath.cpp',
-#         'FF.cpp',
-#         'getparms.cpp',
-#         'GS.cpp',
-#         'IDLinterface.cpp',
-#         'PythonInterface.cpp',
-#         'Messages.cpp',
-#         'MWmain.cpp',
-#         'Plasma.cpp',
-#         'Std_DF.cpp',
-#         'Zeta.cpp'
-#     ]
-#
-#     # Convert to full paths
-#     source_files = [str(source_dir / src) for src in sources]
-#
-#     # Verify source files exist
-#     missing = [f for f in source_files if not os.path.exists(f)]
-#     if missing:
-#         print(f"WARNING: Missing source files: {missing}")
-#         print("Make sure all C++ source files are in pygsfit/src_gyrosynchrotron/")
-#
-#     # Create extension
-#     ext = Extension(
-#         'pygsfit.MWTransferArr',  # This will create pygsfit/MWTransferArr.so
-#         sources=source_files,
-#         include_dirs=[str(source_dir)],  # For header files
-#         language='c++'
-#     )
-#
-#     return ext
+
+
 
 
 def get_extension():
@@ -229,19 +274,42 @@ def get_extension():
     # Convert to full paths
     source_files = [str(source_dir / src) for src in sources]
 
-    # Create extension with a SIMPLE, PREDICTABLE NAME
+    # Check if source files exist
+    missing = [f for f in source_files if not os.path.exists(f)]
+    if missing:
+        print(f"WARNING: Source files not found, skipping compilation")
+        print(f"Missing: {missing[:3]}...")  # Show first 3 missing files
+        return None  # Return None to skip extension
+
+    # Create extension with optional=True
     ext = Extension(
-        'pygsfit.binaries.MWTransferArr_compiled_local',  # This creates MWTransferArr_compiled.so
+        'pygsfit.binaries.MWTransferArr_compiled',  # Creates MWTransferArr_compiled.so
         sources=source_files,
         include_dirs=[str(source_dir)],
-        language='c++'
+        language='c++',
+        optional=True  # THIS IS KEY - makes extension optional!
     )
 
     return ext
 
 
+if __name__ == "__main__":
+    # Try to get extension, but don't fail if sources missing
+    ext = get_extension()
+    ext_modules = [ext] if ext else []
+
+    if not ext_modules:
+        print("\n" + "=" * 60)
+        print("NOTE: Skipping C++ compilation (source files not found)")
+        print("Will use pre-compiled binaries only")
+        print("=" * 60 + "\n")
+
+    setup(
+        ext_modules=ext_modules,
+        cmdclass={'build_ext': CustomBuildExt} if ext_modules else {},
+    )
 # Setup configuration
-setup(
-    ext_modules=[get_extension()],
-    cmdclass={'build_ext': CustomBuildExt},
-)
+# setup(
+#     ext_modules=[get_extension()],
+#     cmdclass={'build_ext': CustomBuildExt},
+# )

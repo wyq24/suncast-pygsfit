@@ -37,7 +37,7 @@ def find_and_load_mw_library():
 
     # Priority 1: Look for compiled library with our specific name
     # The compiled library will be named MWTransferArr_compiled with platform-specific suffix
-    compiled_pattern = str(binaries_dir/ "MWTransferArr_compiled_local*")
+    compiled_pattern = str(binaries_dir/ "MWTransferArr_compiled*")
     compiled_libs = glob.glob(compiled_pattern)
     #print(f'!!!!!!{compiled_pattern} and {compiled_libs}')
 
@@ -273,7 +273,7 @@ class GSCostFunctions:
         # if platform.system() == 'Windows': ##TODO: not yet tested on Windows platform
         #     libname = os.path.join(os.path.dirname(os.path.realpath(__file__)),
         #                            '../binaries/MWTransferArr64.dll')
-        libname = find_and_load_mw_library()[0]
+        libname = find_and_load_mw_library()
         GET_MW = initGET_MW(libname)  # load the library
 
         asec2cm = 0.725e8

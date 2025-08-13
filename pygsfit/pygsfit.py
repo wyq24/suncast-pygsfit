@@ -17,6 +17,7 @@ import pyqtgraph as pg
 from PyQt5.QtCore import *
 from PyQt5.QtGui import *
 from PyQt5.QtWidgets import *
+from PyQt5.QtWidgets import QScrollArea
 from astropy import wcs
 from astropy.io import fits
 from astropy.time import Time, TimeDelta
@@ -98,7 +99,11 @@ class App(QMainWindow):
         self.setWindowTitle(self.title)
         self.setGeometry(self.left, self.top, self.width, self.height)
         self._main = QWidget()
-        self.setCentralWidget(self._main)
+        #self.setCentralWidget(self._main)
+        scroll = QScrollArea(self)
+        scroll.setWidget(self._main)
+        scroll.setWidgetResizable(True)
+        self.setCentralWidget(scroll)
         self.fit_method = 'nelder'
         self.emcee_save_file = ''
         self.fit_params = lmfit.Parameters()
