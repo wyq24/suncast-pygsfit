@@ -36,6 +36,8 @@ from matplotlib.colors import LogNorm
 
 from pygsfit.utils.img_utils import cornor_plot
 from pygsfit.utils.img_utils import submap_of_file1, resize_array
+from pygsfit.utils.export_pygsfitcp_batch_script import export_cp_batch_script_from_app
+
 
 filedir = os.path.dirname(os.path.realpath(__file__))
 print(filedir)
@@ -306,8 +308,12 @@ class App(QMainWindow):
         action_loadEOVSAspectrogram.triggered.connect(self.eodspec_file_select)
         actionFile.addAction(action_loadEOVSAspectrogram)
         action_exportBatchScript = QAction("Export Batch Script", self)
+        action_export_cp_script = QAction("Export pygsfit_cp Batch Script", self)
+        action_export_cp_script.triggered.connect(self.export_cp_batch_script)
+
         action_exportBatchScript.triggered.connect(self.export_batch_script)
         actionFile.addAction(action_exportBatchScript)
+        actionFile.addAction(action_export_cp_script)
         # actionFile.addAction("Open AIA")
         # actionFile.addAction("Open EOVSA Spectrogram")
         actionFile.addSeparator()
@@ -1432,8 +1438,8 @@ class App(QMainWindow):
             self.pgdata = self.data[self.pol_select_idx, self.cur_frame_idx, :, :, :].reshape(
                 (self.meta['nfreq'], self.meta['ny'], self.meta['nx']))
             # self.pgdata = self.data[self.pol_select_idx,self.cur_frame_idx, :, :, :]
-            pos = np.where(self.pgdata > 1e9)
-            self.pgdata[pos] = 1e9
+            pos = np.where(self.pgdata > 1e10)
+            self.pgdata[pos] = 1e10
             del pos
             pos = np.where(self.pgdata < -1000)
             self.pgdata[pos] = -1000
@@ -3630,6 +3636,10 @@ class App(QMainWindow):
             file.writelines(lines)
 
         print(f"Fit parameters exported to {filename}")
+
+    def export_cp_batch_script(self):
+        """Build a CP-style batch script from current state."""
+        export_cp_batch_script_from_app(self)
 
     def serialize_roi(self, roi):
         """
