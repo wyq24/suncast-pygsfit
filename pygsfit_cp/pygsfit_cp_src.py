@@ -206,6 +206,10 @@ class pygsfit_cp_class:
             # else:
             #     print("Invalid input. Please enter 'y' for Yes or 'n' for No.")
 
+    def set_integrated_threshold_sfu(self, value):
+        self.integrated_threshold_sfu = float(value)
+        self.update_flux_threshold_mask()
+
     def update_flux_threshold_mask(self):
         """
             if self.pix_mask is provided, fit_fov would not be used
